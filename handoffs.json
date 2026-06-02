@@ -1,0 +1,176 @@
+[
+  {
+    "id": "8711b0a23a498358",
+    "createdAt": "2026-05-30T16:57:14.725Z",
+    "scanId": "mock-mpslefvj-53",
+    "businessName": "LittleBytes",
+    "website": "https://littlebytes.dental",
+    "location": "Palo Alto, CA",
+    "visibilityScore": 72,
+    "mentionRate": 64,
+    "recipientEmail": "gleo.howtoreach@gmail.com",
+    "requestedBy": {
+      "id": "351f9749149dccd5",
+      "name": "Krish Grover",
+      "email": "krish.s.grover@gmail.com"
+    },
+    "actions": [
+      {
+        "title": "AI says local options are limited",
+        "impact": "High impact",
+        "reason": "AI described the business negatively for \"dentist available for customers in Palo Alto, CA\".",
+        "evidence": "LittleBytes is a well-regarded dentist in Palo Alto, CA.",
+        "solution": "Add a Availability Or Scheduling Page proof block: services offered, who it serves, and 2-3 Menlo Park examples.",
+        "developerTasks": [
+          "Update the Availability Or Scheduling Page with a concise section that addresses: LittleBytes is a well-regarded dentist in Palo Alto, CA."
+        ]
+      },
+      {
+        "title": "Strengthen top-recommendation proof",
+        "impact": "Medium impact",
+        "reason": "Best/top prompts need stronger proof signals like reviews, awards, and service-area clarity.",
+        "evidence": "67% mention rate on top recommendation prompts.",
+        "solution": "Add one concise proof section with ratings, reviews, and credentials.",
+        "developerTasks": [
+          "Add concise proof blocks for ratings, review count, and primary differentiators."
+        ]
+      },
+      {
+        "title": "Make availability and next steps clear",
+        "impact": "Medium impact",
+        "reason": "AI answers need clear booking, hours, or contact details before recommending the business.",
+        "evidence": "67% mention rate on availability prompts.",
+        "solution": "Make hours, scheduling, and next steps easy to verify.",
+        "developerTasks": [
+          "Make scheduling, hours, and contact details easy to crawl."
+        ]
+      },
+      {
+        "title": "Improve local-area coverage",
+        "impact": "High impact",
+        "reason": "Local discovery prompts should verify neighborhoods, nearby cities, and service radius.",
+        "evidence": "78% mention rate on local discovery prompts.",
+        "solution": "Add a crawlable service-area section for nearby cities and neighborhoods.",
+        "developerTasks": [
+          "Add location/service-area sections with nearby neighborhoods and cities served."
+        ]
+      }
+    ]
+  },
+  {
+    "id": "8129b7f5f498dfd9",
+    "createdAt": "2026-05-30T17:02:11.895Z",
+    "scanId": "mock-mpslk7wu-53",
+    "businessName": "Little Bytes",
+    "website": "https://littlebytes.dental",
+    "location": "Palo Alto, CA",
+    "visibilityScore": 72,
+    "mentionRate": 64,
+    "recipientEmail": "gleo.howtoreach@gmail.com",
+    "requestedBy": {
+      "id": "351f9749149dccd5",
+      "name": "Krish",
+      "email": "krish.s.grover@gmail.com"
+    },
+    "actions": [
+      {
+        "title": "AI says local options are limited",
+        "impact": "High impact",
+        "reason": "AI described the business negatively for \"dentist available for customers in Palo Alto, CA\".",
+        "evidence": "Little Bytes is a well-regarded dentist in Palo Alto, CA.",
+        "solution": "Add a Availability Or Scheduling Page proof block: services offered, who it serves, and 2-3 Menlo Park examples.",
+        "developerTasks": [
+          "Update the Availability Or Scheduling Page with a concise section that addresses: Little Bytes is a well-regarded dentist in Palo Alto, CA."
+        ]
+      },
+      {
+        "title": "Strengthen top-recommendation proof",
+        "impact": "Medium impact",
+        "reason": "Best/top prompts need stronger proof signals like reviews, awards, and service-area clarity.",
+        "evidence": "67% mention rate on top recommendation prompts.",
+        "solution": "Add one concise proof section with ratings, reviews, and credentials.",
+        "developerTasks": [
+          "Add concise proof blocks for ratings, review count, and primary differentiators."
+        ]
+      },
+      {
+        "title": "Make availability and next steps clear",
+        "impact": "Medium impact",
+        "reason": "AI answers need clear booking, hours, or contact details before recommending the business.",
+        "evidence": "78% mention rate on availability prompts.",
+        "solution": "Make hours, scheduling, and next steps easy to verify.",
+        "developerTasks": [
+          "Make scheduling, hours, and contact details easy to crawl."
+        ]
+      },
+      {
+        "title": "Improve local-area coverage",
+        "impact": "High impact",
+        "reason": "Local discovery prompts should verify neighborhoods, nearby cities, and service radius.",
+        "evidence": "56% mention rate on local discovery prompts.",
+        "solution": "Add a crawlable service-area section for nearby cities and neighborhoods.",
+        "developerTasks": [
+          "Add location/service-area sections with nearby neighborhoods and cities served."
+        ]
+      }
+    ]
+  },
+  {
+    "id": "9a75f9f1c8f3e084",
+    "createdAt": "2026-05-30T17:02:29.239Z",
+    "scanId": "mock-mpslml76-53",
+    "businessName": "Little Bytes",
+    "website": "https://littlebytes.dental",
+    "location": "Palo Alto, CA",
+    "visibilityScore": 72,
+    "mentionRate": 64,
+    "recipientEmail": "gleo.howtoreach@gmail.com",
+    "requestedBy": {
+      "id": "351f9749149dccd5",
+      "name": "Krish",
+      "email": "krish.s.grover@gmail.com"
+    },
+    "actions": [
+      {
+        "title": "AI says local options are limited",
+        "impact": "High impact",
+        "reason": "AI described the business negatively for \"best dentist in Palo Alto, CA\".",
+        "evidence": "Little Bytes is a well-regarded dentist in Palo Alto, CA.",
+        "solution": "Add a Proof / Recommendations Page proof block: services offered, who it serves, and 2-3 Menlo Park examples.",
+        "developerTasks": [
+          "Update the Proof / Recommendations Page with a concise section that addresses: Little Bytes is a well-regarded dentist in Palo Alto, CA."
+        ]
+      },
+      {
+        "title": "Strengthen top-recommendation proof",
+        "impact": "Medium impact",
+        "reason": "Best/top prompts need stronger proof signals like reviews, awards, and service-area clarity.",
+        "evidence": "89% mention rate on top recommendation prompts.",
+        "solution": "Add one concise proof section with ratings, reviews, and credentials.",
+        "developerTasks": [
+          "Add concise proof blocks for ratings, review count, and primary differentiators."
+        ]
+      },
+      {
+        "title": "Make availability and next steps clear",
+        "impact": "Medium impact",
+        "reason": "AI answers need clear booking, hours, or contact details before recommending the business.",
+        "evidence": "89% mention rate on availability prompts.",
+        "solution": "Make hours, scheduling, and next steps easy to verify.",
+        "developerTasks": [
+          "Make scheduling, hours, and contact details easy to crawl."
+        ]
+      },
+      {
+        "title": "Improve local-area coverage",
+        "impact": "High impact",
+        "reason": "Local discovery prompts should verify neighborhoods, nearby cities, and service radius.",
+        "evidence": "78% mention rate on local discovery prompts.",
+        "solution": "Add a crawlable service-area section for nearby cities and neighborhoods.",
+        "developerTasks": [
+          "Add location/service-area sections with nearby neighborhoods and cities served."
+        ]
+      }
+    ]
+  }
+]
