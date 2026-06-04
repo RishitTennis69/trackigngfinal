@@ -10,13 +10,16 @@ const state = {
     platform: "",
     category: "",
   },
+  competitorMode: false,
   sentimentFilter: "",
   sentimentAnimationScanId: "",
   trendRangeDays: 7,
   pendingStart: null,
-  pendingGoogleUser: null,
+  pendingSignupUser: null,
   user: null,
   useMockData: false,
+  autoScanRequestedFor: "",
+  premiumRequestPending: false,
 };
 
 const els = {
@@ -24,11 +27,17 @@ const els = {
   loginPage: document.querySelector("#loginPage"),
   signInPage: document.querySelector("#signInPage"),
   businessSetupPage: document.querySelector("#businessSetupPage"),
+  trackingLaunchPage: document.querySelector("#trackingLaunchPage"),
+  premiumLaunchBadge: document.querySelector("#premiumLaunchBadge"),
   businessSetupIntro: document.querySelector("#businessSetupIntro"),
   businessSetupForm: document.querySelector("#businessSetupForm"),
   businessSetupNameInput: document.querySelector("#businessSetupNameInput"),
   businessSetupWebsiteInput: document.querySelector("#businessSetupWebsiteInput"),
   backToSignupButton: document.querySelector("#backToSignupButton"),
+  trackingLaunchTitle: document.querySelector("#trackingLaunchTitle"),
+  trackingLaunchText: document.querySelector("#trackingLaunchText"),
+  trackingLaunchHint: document.querySelector("#trackingLaunchHint"),
+  openDashboardButton: document.querySelector("#openDashboardButton"),
   appToast: document.querySelector("#appToast"),
   appShell: document.querySelector("#appShell"),
   landingStartForm: document.querySelector("#landingStartForm"),
@@ -37,13 +46,15 @@ const els = {
   signupForm: document.querySelector("#signupForm"),
   signupNameInput: document.querySelector("#signupNameInput"),
   signupEmailInput: document.querySelector("#signupEmailInput"),
-  signupBusinessInput: document.querySelector("#signupBusinessInput"),
-  signupWebsiteInput: document.querySelector("#signupWebsiteInput"),
+  signupPasswordInput: document.querySelector("#signupPasswordInput"),
+  signInForm: document.querySelector("#signInForm"),
+  signInNameInput: document.querySelector("#signInNameInput"),
+  signInEmailInput: document.querySelector("#signInEmailInput"),
+  signInPasswordInput: document.querySelector("#signInPasswordInput"),
   profileName: document.querySelector("#profileName"),
   profileAvatar: document.querySelector("#profileAvatar"),
   profileWorkspaceName: document.querySelector("#profileWorkspaceName"),
-  googleLoginButton: document.querySelector("#googleLoginButton"),
-  googleSignInButton: document.querySelector("#googleSignInButton"),
+  profileRoleLabel: document.querySelector("#profileRoleLabel"),
   backToLandingButton: document.querySelector("#backToLandingButton"),
   signInBackToLandingButton: document.querySelector("#signInBackToLandingButton"),
   forgotPasswordButton: document.querySelector("#forgotPasswordButton"),
@@ -57,6 +68,9 @@ const els = {
   businessInput: document.querySelector("#businessInput"),
   runButton: document.querySelector("#runButton"),
   propertyBar: document.querySelector("#propertyBar"),
+  scanProgressCard: document.querySelector("#scanProgressCard"),
+  scanProgressTitle: document.querySelector("#scanProgressTitle"),
+  scanProgressText: document.querySelector("#scanProgressText"),
   newScanButton: document.querySelector("#newScanButton"),
   overviewPanel: document.querySelector("#overview"),
   statusStrip: document.querySelector("#statusStrip"),
@@ -81,6 +95,7 @@ const els = {
   trendLabel: document.querySelector("#trendLabel"),
   trendChart: document.querySelector("#trendChart"),
   trendRangeSelect: document.querySelector("#trendRangeSelect"),
+  premiumPlanBadge: document.querySelector("#premiumPlanBadge"),
   factorList: document.querySelector("#factorList"),
   sourceList: document.querySelector("#sourceList"),
   pageList: document.querySelector("#pageList"),
@@ -89,6 +104,7 @@ const els = {
   overviewCompetitorList: document.querySelector("#overviewCompetitorList"),
   metricsPlatformSelect: document.querySelector("#metricsPlatformSelect"),
   metricsCategorySelect: document.querySelector("#metricsCategorySelect"),
+  competitorModeToggle: document.querySelector("#competitorModeToggle"),
   metricsPlatformIcon: document.querySelector("#metricsPlatformIcon"),
   metricsEmptyState: document.querySelector("#metricsEmptyState"),
   metricsResults: document.querySelector("#metricsResults"),
@@ -96,16 +112,17 @@ const els = {
   competitorGrid: document.querySelector("#competitorGrid"),
   sourceDetailList: document.querySelector("#sourceDetailList"),
   pageDetailList: document.querySelector("#pageDetailList"),
-  insightGrid: document.querySelector("#insightGrid"),
   sentimentGrid: document.querySelector("#sentimentGrid"),
+  premiumNavItem: document.querySelector("#premiumNavItem"),
+  premiumGrid: document.querySelector("#premiumGrid"),
   evidenceRows: document.querySelector("#evidenceRows"),
   limitList: document.querySelector("#limitList"),
   emptyState: document.querySelector("#emptyState"),
+  emptyStateTitle: document.querySelector("#emptyStateTitle"),
+  emptyStateText: document.querySelector("#emptyStateText"),
   answerDialog: document.querySelector("#answerDialog"),
   dialogContent: document.querySelector("#dialogContent"),
   clearResultsButton: document.querySelector("#clearResultsButton"),
-  developerEmailButton: document.querySelector("#developerEmailButton"),
-  actionEmailButton: document.querySelector("#actionEmailButton"),
 };
 
 if (document.readyState === "loading") {
@@ -122,16 +139,9 @@ async function init() {
   bindClear();
   bindMetricFilters();
   bindTrendRange();
-  bindDeveloperEmail();
-  bindInsightsDialog();
+  bindPremiumInsights();
+  bindPasswordToggles();
   await loadInitialData();
-}
-
-function bindInsightsDialog() {
-  document.querySelector("#insightsSentCloseButton")?.addEventListener("click", closeInsightsSentDialog);
-  document.querySelector("#insightsSentDialog")?.addEventListener("close", () => {
-    renderInsights();
-  });
 }
 
 async function restoreUserSession() {
@@ -163,18 +173,30 @@ async function restoreUserSession() {
 
 function readSignupForm() {
   return {
-    name: els.signupNameInput?.value.trim() || "",
+    name: titleCaseWords(els.signupNameInput?.value.trim() || ""),
     email: els.signupEmailInput?.value.trim() || "",
-    businessName: els.signupBusinessInput?.value.trim() || "",
-    website: normalizeWebsiteInput(els.signupWebsiteInput?.value.trim() || ""),
+    password: els.signupPasswordInput?.value || "",
   };
+}
+
+function titleCaseWords(value) {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((word) =>
+      word
+        .split("-")
+        .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : part))
+        .join("-"),
+    )
+    .join(" ");
 }
 
 function validateSignup(data) {
   if (!data.name) return "Enter your full name.";
   if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return "Enter a valid email address.";
-  if (!data.businessName) return "Enter your business name.";
-  if (!data.website) return "Enter your business website.";
+  if (!data.password || data.password.length < 8) return "Enter a password with at least 8 characters.";
   return "";
 }
 
@@ -190,9 +212,10 @@ function normalizeWebsiteInput(value) {
   }
 }
 
-function validateGoogleIdentity(data) {
-  if (!data.name) return "Enter your full name before continuing with Google.";
-  if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return "Enter a valid email address before continuing with Google.";
+function validateSignIn(data) {
+  if (!data.name) return "Enter your full name.";
+  if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return "Enter a valid email address.";
+  if (!data.password) return "Enter your password.";
   return "";
 }
 
@@ -205,7 +228,7 @@ function validateBusinessDetails(data) {
 async function completeSignup(data) {
   const error = validateSignup(data);
   if (error) {
-    alert(error);
+    showToast(error);
     return false;
   }
 
@@ -218,26 +241,44 @@ async function completeSignup(data) {
     localStorage.setItem("gleoAuthToken", result.token);
     localStorage.setItem("gleoLoggedIn", "true");
     localStorage.setItem("gleoUser", JSON.stringify(result.user));
-    localStorage.setItem("gleoLastGoogleEmail", result.user.email);
+    localStorage.setItem("gleoLastLoginEmail", result.user.email);
   } catch (signupError) {
-    alert(signupError.message || "Could not create your account.");
+    if (signupError?.status === 409) {
+      setStatus("Account already exists. Signing you in...", "working");
+      return completeLogin(
+        {
+          name: data.name,
+          email: data.email,
+          password: data.password,
+        },
+        { statusMessage: "Signing you in..." },
+      );
+    }
+    showToast(signupError.message || "Could not create your account.");
     return false;
   }
 
   await loadUserScans(state.user);
   state.setupForcedOpen = false;
-  state.pendingGoogleUser = null;
-  state.pendingStart = null;
+  state.pendingSignupUser = null;
 
   renderUserProfile();
-  showAppShell(true);
   renderAll();
   setStatus(buildDashboardStatusMessage(), "ready");
+  const started = await maybeStartAutoScan({ background: true });
+  if (state.currentScan?.metrics?.completedAnswers) {
+    showAppShell(true);
+  } else if (started.started) {
+    showTrackingLaunchPage();
+  } else {
+    showAppShell(true);
+  }
+  state.pendingStart = null;
   return true;
 }
 
 function getStoredLoginEmail() {
-  const savedEmail = localStorage.getItem("gleoLastGoogleEmail");
+  const savedEmail = localStorage.getItem("gleoLastLoginEmail");
   if (savedEmail) return savedEmail;
   try {
     return JSON.parse(localStorage.getItem("gleoUser") || "null")?.email || "";
@@ -246,63 +287,52 @@ function getStoredLoginEmail() {
   }
 }
 
-async function completeLogin(email) {
+async function completeLogin({ name, email, password }, options = {}) {
+  const error = validateSignIn({ name, email, password });
+  if (error) {
+    showToast(error);
+    return false;
+  }
+  const statusMessage = options.statusMessage || "";
+  if (statusMessage) {
+    setStatus(statusMessage, "working");
+  }
   try {
     const result = await fetchJson("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ name: titleCaseWords(name), email, password }),
     });
     state.user = result.user;
     localStorage.setItem("gleoAuthToken", result.token);
     localStorage.setItem("gleoLoggedIn", "true");
     localStorage.setItem("gleoUser", JSON.stringify(result.user));
-    localStorage.setItem("gleoLastGoogleEmail", result.user.email);
+    localStorage.setItem("gleoLastLoginEmail", result.user.email);
   } catch (loginError) {
-    alert(loginError.message || "Could not sign you in.");
+    showToast(loginError.message || "Could not sign you in.");
     return false;
   }
 
   await loadUserScans(state.user);
   state.setupForcedOpen = false;
-  state.pendingGoogleUser = null;
-  state.pendingStart = null;
+  state.pendingSignupUser = null;
 
   renderUserProfile();
-  showAppShell(true);
   renderAll();
   setStatus(buildDashboardStatusMessage(), "ready");
+  const started = await maybeStartAutoScan({ background: true });
+  if (state.currentScan?.metrics?.completedAnswers) {
+    showAppShell(true);
+  } else if (started.started) {
+    showTrackingLaunchPage();
+  } else {
+    showAppShell(true);
+  }
+  state.pendingStart = null;
   return true;
 }
 
-async function mockGoogleSignIn() {
-  const token = localStorage.getItem("gleoAuthToken");
-  if (token) {
-    try {
-      const { user } = await fetchJson("/api/auth/me");
-      state.user = user;
-      localStorage.setItem("gleoUser", JSON.stringify(user));
-      await loadUserScans(user);
-      renderUserProfile();
-      showAppShell(true);
-      renderAll();
-      setStatus(buildDashboardStatusMessage(), "ready");
-      return;
-    } catch {
-      localStorage.removeItem("gleoAuthToken");
-    }
-  }
-
-  const email = getStoredLoginEmail();
-  if (!email) {
-    alert("No saved Google account found on this device. Sign up first, then you can sign in with Google here once OAuth is connected.");
-    return;
-  }
-
-  await completeLogin(email);
-}
-
 function showForgotPasswordNotice() {
-  alert("Password reset is not available yet. Sign in with Google, or sign up with email to create your account.");
+  showToast("Password reset is not available yet. Sign up with email to create or update your account.");
 }
 
 async function loadUserScans(user) {
@@ -318,25 +348,80 @@ async function loadUserScans(user) {
     return;
   }
 
-  state.useMockData = true;
-  state.scans = generateMockScans(user);
-  state.currentScan = state.scans.at(-1) || null;
+  state.useMockData = false;
+  state.scans = [];
+  state.currentScan = null;
 }
 
 function buildDashboardStatusMessage() {
   if (!state.user) return "Dashboard loaded.";
+  const accessTier = getAccessTier();
+  const trialEndLabel = formatAccessDate(state.user?.trialEndsAt);
+  if (!state.currentScan) {
+    if (accessTier === "premium") {
+      return `Monthly Retainer is active. Premium insights are unlocked for ${state.user.businessName}.`;
+    }
+    if (accessTier === "included_month") {
+      return `Tracking is included for your first month. Access ends on ${trialEndLabel || "your trial end date"} unless you choose a monthly plan.`;
+    }
+    return `Tracking is active. You are on AI Mention Tracking for ${state.user.businessName}. Premium actionable insights are available with Monthly Retainer.`;
+  }
   if (state.useMockData) {
     return `Demo dashboard for ${state.user.businessName}. Connect API keys and run a scan for live results.`;
   }
-  return `Dashboard loaded for ${state.user.businessName}.`;
+  if (accessTier === "premium") {
+    return "Monthly Retainer is active. Premium insights are unlocked and actionable insights are live.";
+  }
+  if (accessTier === "included_month") {
+    return `Tracking is included for your first month. Access ends on ${trialEndLabel || "your trial end date"}. Premium actionable insights are not included on this access tier.`;
+  }
+  return "Tracking is active. You are on AI Mention Tracking. Premium actionable insights are available with Monthly Retainer.";
+}
+
+function hasPremiumInsightsAccess() {
+  return Boolean(state.user?.premiumInsights);
+}
+
+function getAccessTier() {
+  return state.user?.accessTier || "";
+}
+
+function formatAccessDate(value) {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+  } catch {
+    return "";
+  }
 }
 
 function renderUserProfile() {
   const name = state.user?.name || "Workspace";
   const initial = name.trim()[0]?.toUpperCase() || "G";
+  const accessTier = getAccessTier();
+  const shortName = name.split(" ")[0] || name;
   if (els.profileName) els.profileName.textContent = name.split(" ")[0] || name;
   if (els.profileAvatar) els.profileAvatar.textContent = initial;
-  if (els.profileWorkspaceName) els.profileWorkspaceName.textContent = `${name.split(" ")[0] || name} Workspace`;
+  if (els.profileWorkspaceName) {
+    els.profileWorkspaceName.textContent =
+      accessTier === "premium"
+        ? `${shortName} Premium Workspace`
+        : accessTier === "included_month"
+          ? `${shortName} Included Workspace`
+          : `${shortName} Workspace`;
+  }
+  if (els.profileRoleLabel) {
+    els.profileRoleLabel.textContent =
+      accessTier === "premium" ? "Premium access" : accessTier === "included_month" ? "Included access" : "Workspace";
+  }
+  if (els.premiumPlanBadge) {
+    els.premiumPlanBadge.hidden = !["premium", "included_month"].includes(accessTier);
+    els.premiumPlanBadge.textContent =
+      accessTier === "premium" ? "Premium" : accessTier === "included_month" ? "Included" : "Tracking";
+  }
+  if (els.premiumNavItem) {
+    els.premiumNavItem.hidden = !hasPremiumInsightsAccess();
+  }
   renderProfileMenu();
 }
 
@@ -638,59 +723,77 @@ function bindLanding() {
     event.preventDefault();
     state.pendingStart = {
       website: normalizeWebsiteInput(els.landingWebsiteInput.value.trim()),
-      businessName: els.landingBusinessInput.value.trim(),
+      businessName: titleCaseWords(els.landingBusinessInput.value.trim()),
     };
     showLoginPage();
   });
 
+  [els.landingBusinessInput, els.signupNameInput, els.signInNameInput, els.businessSetupNameInput]
+    .filter(Boolean)
+    .forEach((input) => {
+      input.addEventListener("blur", () => {
+        input.value = titleCaseWords(input.value);
+      });
+    });
+
   els.signupForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await completeSignup(readSignupForm());
-  });
-
-  els.googleLoginButton?.addEventListener("click", () => {
-    const identity = {
-      name: els.signupNameInput?.value.trim() || "",
-      email: els.signupEmailInput?.value.trim() || "",
-    };
-    const error = validateGoogleIdentity(identity);
+    const identity = readSignupForm();
+    const error = validateSignup(identity);
     if (error) {
-      alert(error);
+      showToast(error);
       return;
     }
-    state.pendingGoogleUser = identity;
+    state.pendingSignupUser = {
+      name: identity.name,
+      email: identity.email,
+      password: identity.password,
+    };
+    if (state.pendingStart?.businessName && state.pendingStart?.website) {
+      await completeSignup({
+        ...state.pendingSignupUser,
+        businessName: state.pendingStart.businessName,
+        website: state.pendingStart.website,
+      });
+      return;
+    }
     showBusinessSetupPage();
+  });
+
+  els.signInForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await completeLogin({
+      name: titleCaseWords(els.signInNameInput?.value.trim() || ""),
+      email: els.signInEmailInput?.value.trim() || "",
+      password: els.signInPasswordInput?.value || "",
+    });
   });
 
   els.businessSetupForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const businessDetails = {
-      businessName: els.businessSetupNameInput?.value.trim() || "",
+      businessName: titleCaseWords(els.businessSetupNameInput?.value.trim() || ""),
       website: normalizeWebsiteInput(els.businessSetupWebsiteInput?.value.trim() || ""),
     };
     const error = validateBusinessDetails(businessDetails);
     if (error) {
-      alert(error);
+      showToast(error);
       return;
     }
-    if (!state.pendingGoogleUser) {
-      alert("Start Google sign up again.");
+    if (!state.pendingSignupUser) {
+      showToast("Start sign up again.");
       showLoginPage();
       return;
     }
     await completeSignup({
-      ...state.pendingGoogleUser,
+      ...state.pendingSignupUser,
       ...businessDetails,
     });
   });
 
   els.backToSignupButton?.addEventListener("click", () => {
-    state.pendingGoogleUser = null;
+    state.pendingSignupUser = null;
     showLoginPage();
-  });
-
-  els.googleSignInButton?.addEventListener("click", () => {
-    mockGoogleSignIn();
   });
 
   els.forgotPasswordButton?.addEventListener("click", showForgotPasswordNotice);
@@ -698,6 +801,10 @@ function bindLanding() {
 
   els.backToLandingButton?.addEventListener("click", () => showAppShell(false));
   els.signInBackToLandingButton?.addEventListener("click", () => showAppShell(false));
+  els.openDashboardButton?.addEventListener("click", () => {
+    showAppShell(true);
+    renderAll();
+  });
 
   els.profileMenuButton?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -717,6 +824,8 @@ function bindLanding() {
     state.useMockData = false;
     state.currentScan = null;
     state.scans = [];
+    state.autoScanRequestedFor = "";
+    state.premiumRequestPending = false;
     closeProfileMenu();
     renderUserProfile();
     showAppShell(false);
@@ -737,12 +846,9 @@ function showLoginPage() {
   els.landingPage?.classList.add("hidden");
   els.appShell?.classList.add("hidden");
   els.businessSetupPage?.classList.add("hidden");
+  els.trackingLaunchPage?.classList.add("hidden");
   els.signInPage?.classList.add("hidden");
   els.loginPage?.classList.remove("hidden");
-  if (state.pendingStart) {
-    if (els.signupBusinessInput) els.signupBusinessInput.value = state.pendingStart.businessName || "";
-    if (els.signupWebsiteInput) els.signupWebsiteInput.value = state.pendingStart.website || "";
-  }
   els.signupNameInput?.focus();
 }
 
@@ -750,6 +856,7 @@ function showSignInPage() {
   els.landingPage?.classList.add("hidden");
   els.appShell?.classList.add("hidden");
   els.businessSetupPage?.classList.add("hidden");
+  els.trackingLaunchPage?.classList.add("hidden");
   els.loginPage?.classList.add("hidden");
   els.signInPage?.classList.remove("hidden");
 }
@@ -759,9 +866,10 @@ function showBusinessSetupPage() {
   els.appShell?.classList.add("hidden");
   els.loginPage?.classList.add("hidden");
   els.signInPage?.classList.add("hidden");
+  els.trackingLaunchPage?.classList.add("hidden");
   els.businessSetupPage?.classList.remove("hidden");
-  if (els.businessSetupIntro && state.pendingGoogleUser) {
-    els.businessSetupIntro.textContent = `Signed in as ${state.pendingGoogleUser.name}. Add your business details to build your visibility scan.`;
+  if (els.businessSetupIntro && state.pendingSignupUser) {
+    els.businessSetupIntro.textContent = `You are all set as ${state.pendingSignupUser.name}. Add the business you want us to start tracking.`;
   }
   if (state.pendingStart) {
     if (els.businessSetupNameInput) els.businessSetupNameInput.value = state.pendingStart.businessName || "";
@@ -770,15 +878,70 @@ function showBusinessSetupPage() {
   els.businessSetupNameInput?.focus();
 }
 
+function showTrackingLaunchPage() {
+  const businessName = state.user?.businessName || "your business";
+  const hasScanRecord = Boolean(state.currentScan);
+  const hasCompletedScan = Boolean(state.currentScan?.metrics?.completedAnswers);
+  const isPremium = hasPremiumInsightsAccess();
+  const accessTier = getAccessTier();
+  const trialEndLabel = formatAccessDate(state.user?.trialEndsAt);
+  const isWaitingForResults = state.isScanning || (!hasScanRecord && state.autoScanRequestedFor === state.user?.id);
+  const needsRetry = !hasCompletedScan && !isWaitingForResults;
+  els.landingPage?.classList.add("hidden");
+  els.appShell?.classList.add("hidden");
+  els.loginPage?.classList.add("hidden");
+  els.signInPage?.classList.add("hidden");
+  els.businessSetupPage?.classList.add("hidden");
+  els.trackingLaunchPage?.classList.remove("hidden");
+  if (els.premiumLaunchBadge) {
+    els.premiumLaunchBadge.hidden = !isPremium;
+  }
+  if (els.trackingLaunchTitle) {
+    els.trackingLaunchTitle.textContent = hasCompletedScan
+      ? `${businessName} is ready to review.`
+      : needsRetry
+        ? "We need one more pass to finish your first score."
+      : accessTier === "included_month"
+        ? "Your included tracking month has started."
+        : isPremium
+        ? "Your premium tracking has been started."
+        : "Your tracking has been started.";
+  }
+  if (els.trackingLaunchText) {
+    els.trackingLaunchText.textContent = hasCompletedScan
+      ? `Your first scan is ready. Open the dashboard to see what AI is saying about ${businessName}.`
+      : needsRetry
+        ? `The first scan did not return enough completed AI answers to calculate a score for ${businessName} yet. Open the dashboard to retry the scan once you are ready.`
+      : accessTier === "included_month"
+        ? `Tracking is included for your first month and ends on ${trialEndLabel || "your trial end date"} unless you choose a monthly plan. Premium actionable insights are not included on this access tier.`
+        : isPremium
+        ? `We are scanning ${businessName} now and preparing your premium reoptimization insights. Open the dashboard soon to review the first results.`
+        : `We are scanning ${businessName} now. This usually takes a few minutes. Open the dashboard soon to review the first results.`;
+  }
+  if (els.trackingLaunchHint) {
+    els.trackingLaunchHint.textContent = hasCompletedScan
+      ? "Your dashboard is ready."
+      : needsRetry
+        ? "Open the dashboard when you want to start a fresh retry."
+        : "We will unlock the dashboard here as soon as the first score is ready.";
+  }
+  if (els.openDashboardButton) {
+    els.openDashboardButton.hidden = !hasCompletedScan && !needsRetry;
+    els.openDashboardButton.disabled = !hasCompletedScan && !needsRetry;
+    els.openDashboardButton.textContent = hasCompletedScan ? "Open dashboard" : "Open dashboard and retry";
+  }
+}
+
 function showAppShell(isVisible) {
   els.appShell?.classList.toggle("hidden", !isVisible);
   els.landingPage?.classList.toggle("hidden", isVisible);
   els.loginPage?.classList.add("hidden");
   els.signInPage?.classList.add("hidden");
   els.businessSetupPage?.classList.add("hidden");
+  els.trackingLaunchPage?.classList.add("hidden");
   if (!isVisible) {
     state.setupForcedOpen = false;
-    state.pendingGoogleUser = null;
+    state.pendingSignupUser = null;
   }
 }
 
@@ -791,10 +954,12 @@ function applyPendingStart() {
 function bindNavigation() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => {
+      if (button.hidden) return;
       const panel = button.dataset.panel;
       document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item === button));
       document.querySelectorAll(".panels").forEach((item) => item.classList.toggle("active", item.id === panel));
       if (panel === "sentiment") renderSentiment();
+      if (panel === "premium") renderPremiumInsights();
     });
   });
 }
@@ -839,40 +1004,86 @@ function bindScan() {
       return;
     }
 
-    const payload = {
+    await runScanRequest({
       website: els.websiteInput.value.trim(),
       businessName: els.businessInput.value.trim(),
       platforms,
-    };
-
-    setScanning(true);
-
-    try {
-      const response = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Scan failed.");
-
-      state.currentScan = data.scan;
-      state.scans.push(data.scan);
-      state.useMockData = false;
-      state.setupForcedOpen = false;
-      renderAll();
-
-      const completed = data.scan.metrics.completedAnswers;
-      const missing = data.scan.missingPlatforms.length
-        ? ` Missing keys: ${data.scan.missingPlatforms.map(providerLabel).join(", ")}.`
-        : "";
-      setStatus(`Scan complete. ${completed} AI answers analyzed.${missing}`, completed ? "ready" : "error");
-    } catch (error) {
-      setStatus(error.message || "The scan could not complete.", "error");
-    } finally {
-      setScanning(false);
-    }
+    });
   });
+}
+
+function getConfiguredPlatformKeys() {
+  return Object.entries(state.config?.providers || {})
+    .filter(([, provider]) => provider.configured)
+    .map(([key]) => key);
+}
+
+async function maybeStartAutoScan({ background = false } = {}) {
+  if (!state.user || !state.config || state.isScanning || state.currentScan || state.setupForcedOpen) return { started: false };
+  if (state.autoScanRequestedFor === state.user.id) return { started: false };
+
+  const platforms = getConfiguredPlatformKeys();
+  renderSetupVisibility();
+
+  if (!platforms.length) {
+    setStatus("We could not start the scan because the provider keys are missing on this server.", "error");
+    renderSetupVisibility();
+    return { started: false };
+  }
+  state.autoScanRequestedFor = state.user.id;
+  const scanTask = runScanRequest(
+    {
+      website: state.user.website,
+      businessName: state.user.businessName,
+      platforms,
+    },
+    { auto: true },
+  );
+  if (background) {
+    void scanTask;
+    return { started: true, background: true };
+  }
+  return { started: true, background: false, result: await scanTask };
+}
+
+async function runScanRequest(payload, { auto = false } = {}) {
+  setScanning(true, auto);
+
+  try {
+    const response = await fetch("/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Scan failed.");
+
+    state.currentScan = data.scan;
+    state.scans.push(data.scan);
+    state.useMockData = false;
+    state.setupForcedOpen = false;
+    renderAll();
+    if (!els.trackingLaunchPage?.classList.contains("hidden")) {
+      showTrackingLaunchPage();
+    }
+
+    const completed = data.scan.metrics.completedAnswers;
+    const missing = data.scan.missingPlatforms.length
+      ? ` Missing keys: ${data.scan.missingPlatforms.map(providerLabel).join(", ")}.`
+      : "";
+    setStatus(`Scan complete. ${completed} AI answers analyzed.${missing}`, completed ? "ready" : "error");
+    return { ok: true, scan: data.scan };
+  } catch (error) {
+    if (auto && state.user) state.autoScanRequestedFor = "";
+    setStatus(error.message || "The scan could not complete.", "error");
+    if (!auto) showToast(error.message || "The scan could not complete.");
+    return { ok: false, error };
+  } finally {
+    setScanning(false, auto);
+    if (!els.trackingLaunchPage?.classList.contains("hidden")) {
+      showTrackingLaunchPage();
+    }
+  }
 }
 
 function bindClear() {
@@ -891,6 +1102,11 @@ function bindMetricFilters() {
       animateControlChange(select, els.metricsResults);
       renderPrompts();
     });
+  });
+  els.competitorModeToggle?.addEventListener("change", () => {
+    state.competitorMode = els.competitorModeToggle.checked;
+    animateControlChange(els.competitorModeToggle, els.metricsResults);
+    renderPrompts();
   });
 }
 
@@ -915,82 +1131,6 @@ function animateElements(items) {
     item.classList.add("is-updating");
     window.setTimeout(() => item.classList.remove("is-updating"), 980);
   });
-}
-
-function bindDeveloperEmail() {
-  [els.developerEmailButton, els.actionEmailButton].filter(Boolean).forEach((button) => {
-    button.addEventListener("click", () => {
-      void sendDeveloperHandoff();
-    });
-  });
-}
-
-async function sendDeveloperHandoff(selectedActions) {
-  const scan = state.currentScan;
-  const actions = selectedActions || getGroundedActions(scan);
-  if (!scan || !actions.length) {
-    setStatus("Run a scan with action items before sending a developer handoff.", "error");
-    return;
-  }
-
-  try {
-    await fetchJson("/api/developer-handoff", {
-      method: "POST",
-      body: JSON.stringify(buildDeveloperHandoffPayload(scan, actions)),
-    });
-    markInsightsSent(scan.id);
-    showInsightsSentDialog();
-    setStatus("Action items sent successfully.", "ready");
-  } catch (error) {
-    setStatus(error.message || "Could not send insights right now.", "error");
-  }
-}
-
-function showInsightsSentDialog() {
-  const dialog = document.querySelector("#insightsSentDialog");
-  if (!dialog) return;
-  dialog.showModal();
-}
-
-function closeInsightsSentDialog() {
-  document.querySelector("#insightsSentDialog")?.close();
-}
-
-function buildDeveloperHandoffPayload(scan, actions) {
-  return {
-    scanId: scan.id,
-    businessName: scan.businessName,
-    website: scan.website,
-    location: scan.location,
-    visibilityScore: scan.metrics?.visibilityScore ?? null,
-    mentionRate: scan.metrics?.mentionRate ?? null,
-    actions: actions.map((action) => ({
-      title: action.title,
-      impact: action.impact,
-      reason: action.reason,
-      evidence: action.evidence,
-      solution: conciseSolution(action),
-      developerTasks: action.developerTasks || [],
-    })),
-  };
-}
-
-function getSentInsightScanIds() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem("gleoInsightsSent") || "[]"));
-  } catch {
-    return new Set();
-  }
-}
-
-function markInsightsSent(scanId) {
-  const ids = getSentInsightScanIds();
-  ids.add(scanId);
-  localStorage.setItem("gleoInsightsSent", JSON.stringify([...ids]));
-}
-
-function insightsWereSent(scan) {
-  return Boolean(scan && getSentInsightScanIds().has(scan.id));
 }
 
 function showToast(message) {
@@ -1021,6 +1161,7 @@ async function loadInitialData() {
 
   renderConfig();
   renderAll();
+  void maybeStartAutoScan({ background: true });
 
   if (state.currentScan?.metrics?.completedAnswers) {
     setStatus(buildDashboardStatusMessage(), "ready");
@@ -1035,8 +1176,8 @@ function renderAll() {
     renderOverview,
     renderPrompts,
     renderSources,
-    renderInsights,
     renderSentiment,
+    renderPremiumInsights,
     renderEvidence,
     renderTrend,
     renderProfileMenu,
@@ -1092,13 +1233,24 @@ function renderOverview() {
   const scan = state.currentScan;
   const hasScan = Boolean(scan);
   const hasCompletedAnswers = Boolean(scan?.metrics.completedAnswers);
-  els.emptyState.classList.toggle("hidden", hasScan);
+  els.emptyState.classList.toggle("hidden", hasCompletedAnswers);
   if (els.setupCard) els.setupCard.classList.add("hidden");
   els.scoreHero.hidden = !hasScan || !hasCompletedAnswers;
   renderSetupVisibility();
-  setDeveloperButtonsVisible(Boolean(getGroundedActions(scan).length));
 
-  if (!scan) {
+  if (!scan || !hasCompletedAnswers) {
+    if (els.emptyStateTitle && els.emptyStateText) {
+      if (!scan) {
+        els.emptyStateTitle.textContent = "No scan results yet";
+        els.emptyStateText.textContent = "Start with the business name and website. Gleo will infer location and service areas from the site, then populate the dashboard with real scan output.";
+      } else if (state.isScanning) {
+        els.emptyStateTitle.textContent = "Your first scan is in progress";
+        els.emptyStateText.textContent = `We are still calculating ${scan.businessName || "your business"}'s first score. The dashboard will fill in as soon as completed AI answers come back.`;
+      } else {
+        els.emptyStateTitle.textContent = "Your first score is not ready yet";
+        els.emptyStateText.textContent = "The last scan did not return enough completed AI answers to calculate a score. Start a new scan from the dashboard to try again.";
+      }
+    }
     setSummaryValues();
     renderEmptyLists();
     return;
@@ -1118,8 +1270,11 @@ function renderOverview() {
 function renderSetupVisibility() {
   if (!els.propertyBar) return;
   const hasCompletedScan = Boolean(state.currentScan?.metrics?.completedAnswers);
-  const hideSetup = hasCompletedScan && !state.isScanning && !state.setupForcedOpen;
+  const hideSetup = !state.setupForcedOpen;
   els.propertyBar.classList.toggle("hidden", hideSetup);
+  const showManualForm = state.setupForcedOpen && !state.isScanning;
+  els.scanForm?.classList.toggle("hidden", !showManualForm);
+  els.scanProgressCard?.classList.add("hidden");
   if (els.newScanButton) {
     els.newScanButton.hidden = !hasCompletedScan || state.isScanning || state.setupForcedOpen;
   }
@@ -1350,6 +1505,7 @@ function renderMetricControls(scan) {
     els.metricsCategorySelect.innerHTML = `<option value="">Choose Topic</option>`;
     els.metricsPlatformSelect.disabled = true;
     els.metricsCategorySelect.disabled = true;
+    if (els.competitorModeToggle) els.competitorModeToggle.disabled = true;
     if (els.metricsPlatformIcon) els.metricsPlatformIcon.innerHTML = platformIconSvg("");
     return;
   }
@@ -1367,6 +1523,10 @@ function renderMetricControls(scan) {
 
   els.metricsPlatformSelect.disabled = false;
   els.metricsCategorySelect.disabled = false;
+  if (els.competitorModeToggle) {
+    els.competitorModeToggle.disabled = false;
+    els.competitorModeToggle.checked = state.competitorMode;
+  }
   els.metricsPlatformSelect.innerHTML = [
     `<option value="">Choose LLM</option>`,
     ...platformRows.map(
@@ -1464,6 +1624,19 @@ function renderMetricTopicCard(category, prompts, results, businessName) {
   const competitorShare = totalShareUnits ? 100 - ownShare : 0;
   const ownBarShare = ownShare > 0 ? Math.max(5, ownShare) : 0;
   const competitorBarShare = competitorShare > 0 ? Math.max(5, competitorShare) : 0;
+  const competitorRows = [...competitorMentionMap.entries()]
+    .map(([name, mentions]) => ({
+      name,
+      mentions,
+      topChoices: competitorTopChoiceMap.get(name) || 0,
+      mentionRate: percent(mentions, completedResults.length || 1),
+      share: totalShareUnits
+        ? percent(useTopChoiceShare ? competitorTopChoiceMap.get(name) || 0 : mentions, totalShareUnits)
+        : 0,
+    }))
+    .sort((a, b) => b.topChoices - a.topChoices || b.mentions - a.mentions || a.name.localeCompare(b.name))
+    .slice(0, 3);
+  const competitorMode = state.competitorMode && competitorRows.length > 0;
   const modeLabel = useTopChoiceShare ? "#1 Choice Share" : "Mention Share";
   const youLabel = "You";
   const competitorLabel = "Competitors";
@@ -1472,6 +1645,25 @@ function renderMetricTopicCard(category, prompts, results, businessName) {
     : null;
   const completedCount = completedResults.length;
   const uniquePromptTexts = [...new Set(prompts.map((prompt) => prompt.text))];
+  const competitorSegments = competitorMode
+    ? competitorRows
+        .map((competitor, index) => {
+          const width = competitor.share > 0 ? Math.max(5, competitor.share) : 0;
+          const label = `${competitor.name}: ${competitor.share}%`;
+          const color = competitorColor(index);
+          return width
+            ? `<i class="competitor-segment competitor-segment-detail" title="${escapeAttr(label)}" style="--w:${width}%; --segment-color:${color}">
+                <span class="segment-tooltip">
+                  <b style="--tooltip-color:${color}">${competitor.share}% share</b>
+                  <strong>${escapeHtml(competitor.name)}</strong>
+                </span>
+              </i>`
+            : "";
+        })
+        .join("")
+    : competitorShare > 0
+      ? `<i class="competitor-segment" title="${escapeAttr(`${competitorLabel}: ${competitorShare}%`)}" style="--w:${competitorBarShare}%"></i>`
+      : "";
   const shareLegend = `
     <div class="metric-share-legend metric-share-legend-simple">
       <span class="legend-you"><b>${ownShare}%</b> ${escapeHtml(youLabel)}</span>
@@ -1494,8 +1686,8 @@ function renderMetricTopicCard(category, prompts, results, businessName) {
       <div class="metric-bar-wrap" aria-label="Mention share">
         <div class="metric-mode-label">${escapeHtml(modeLabel)}</div>
         <div class="segmented-mention-bar">
-          <i class="you-segment" style="--w:${ownBarShare}%"></i>
-          ${competitorShare > 0 ? `<i class="competitor-segment" style="--w:${competitorBarShare}%"></i>` : ""}
+          <i class="you-segment" title="${escapeAttr(`${youLabel}: ${ownShare}%`)}" style="--w:${ownBarShare}%"></i>
+          ${competitorSegments}
         </div>
         ${shareLegend}
       </div>
@@ -1526,7 +1718,7 @@ function topChoiceForResult(result, businessName) {
 }
 
 function competitorColor(index) {
-  return ["#2472f5", "#3f4358", "#7c5cff", "#0e8bb5"][index % 4];
+  return ["#1d4ed8", "#0e8bb5", "#166534", "#92400e", "#991b1b"][index % 5];
 }
 
 function buildProviderStatusNote(results) {
@@ -1733,63 +1925,142 @@ function renderSources() {
     : emptyStack("No own-site pages were cited yet.");
 }
 
-function renderInsights() {
+function bindPremiumInsights() {
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("#premiumRequestButton");
+    if (!button) return;
+    void requestPremiumInsights();
+  });
+}
+
+function renderPremiumInsights() {
+  if (!els.premiumGrid || !els.premiumNavItem) return;
+  const isPremium = hasPremiumInsightsAccess();
+  els.premiumNavItem.hidden = !isPremium;
+
+  if (!isPremium) {
+    const premiumPanel = document.querySelector("#premium");
+    if (premiumPanel?.classList.contains("active")) {
+      document.querySelector('.nav-item[data-panel="overview"]')?.click();
+    }
+    return;
+  }
+
   const scan = state.currentScan;
-  if (!scan?.metrics?.completedAnswers || insightsWereSent(scan)) {
-    els.insightGrid.innerHTML = insightsWereSent(scan)
-      ? emptyCard("No Pending Insights", "All recommendations have been sent.")
-      : emptyCard("No Actionable Insights Yet", "Run a completed scan to generate grounded problems and fixes from mention, sentiment, source, and competitor signals.");
+  if (!scan?.metrics?.completedAnswers) {
+    els.premiumGrid.innerHTML = `
+      <article class="insights-loading-card">
+        <span class="insights-loading-orbit" aria-hidden="true"></span>
+        <strong>Premium insights are warming up</strong>
+        <p>We are waiting for the first completed scan so we can build grounded reoptimization recommendations for your business.</p>
+      </article>
+    `;
     return;
   }
 
-  const actions = getGroundedActions(scan);
+  const actions = getPremiumActions(scan);
   if (!actions.length) {
-    els.insightGrid.innerHTML = emptyCard("No Actionable Insights Yet", "Run a completed scan to generate grounded problems and fixes from mention, sentiment, source, and competitor signals.");
+    els.premiumGrid.innerHTML = emptyCard("No Premium Insights Yet", "Run another completed scan to refresh the reoptimization recommendations for this business.");
     return;
   }
 
-  els.insightGrid.innerHTML = `
+  const requestLabel = state.premiumRequestPending ? "Submitting..." : "Request Reoptimization";
+  const requestDisabled = state.premiumRequestPending ? "disabled" : "";
+  const premiumSummary = `Premium request includes ${actions.length} grounded insight${actions.length === 1 ? "" : "s"} from the latest scan.`;
+
+  els.premiumGrid.innerHTML = `
     <article class="insight-board ${actions.length === 1 ? "single-insight" : ""}">
       <div class="insight-board-list">
         <div class="insight-board-head">
           <span>Problem</span>
-          <span>Solution</span>
+          <span>Recommended Fix</span>
         </div>
         ${actions
-          .map((action, index) => {
-            const problem = conciseProblem(action);
-            const solution = conciseSolution(action);
-            return `
+          .map(
+            (action, index) => `
               <div class="insight-board-row">
-                <span class="insight-row-icon" aria-hidden="true">${insightIcon(index)}</span>
+                <span class="insight-row-icon" aria-hidden="true">${premiumInsightIcon(index)}</span>
                 <div>
-                  <strong>${escapeHtml(titleCaseLabel(action.title))}</strong>
-                  <p>${escapeHtml(problem)}</p>
+                  <strong>${escapeHtml(action.title)}</strong>
+                  <p>${escapeHtml(action.reason || action.evidence || "AI visibility dropped in this area.")}</p>
                 </div>
                 <div>
-                  <strong>${escapeHtml(solutionTitle(action))}</strong>
-                  <p>${escapeHtml(solution)}</p>
+                  <strong>${escapeHtml(action.impact || "Priority recommendation")}</strong>
+                  <p>${escapeHtml(buildPremiumActionSolution(action))}</p>
                 </div>
               </div>
-            `;
-          })
+            `,
+          )
           .join("")}
       </div>
       <aside class="insight-send-panel">
-        <span class="send-orb" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 3 9.4 14.6M21 3l-7.4 18-4.2-6.4L3 10.4 21 3Z" /></svg></span>
-        <strong>Send all insights to your developer</strong>
-        <p>Share all recommendations in one click. Gleo will notify our team directly.</p>
-        <button class="email-button insight-send-button border-beam-button" type="button" id="insightSendButton">
-          Send to Developer
+        <span class="send-orb" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 3 7v6c0 4.9 3.2 9.4 9 10 5.8-.6 9-5.1 9-10V7l-9-4Z" /></svg></span>
+        <strong>Premium Reoptimization</strong>
+        <p>${escapeHtml(premiumSummary)} We store the request on the backend and alert you by text if Twilio is configured.</p>
+        <button class="email-button insight-send-button border-beam-button" type="button" id="premiumRequestButton" ${requestDisabled}>
+          ${escapeHtml(requestLabel)}
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 5.8 19.4 12l-6.2 6.2-1.4-1.4 3.8-3.8H4v-2h11.6l-3.8-3.8 1.4-1.4Z" /></svg>
         </button>
       </aside>
     </article>
   `;
+}
 
-  document.querySelector("#insightSendButton")?.addEventListener("click", () => {
-    void sendDeveloperHandoff(actions);
-  });
+function getPremiumActions(scan) {
+  return Array.isArray(scan?.metrics?.actions) ? scan.metrics.actions.slice(0, 5) : [];
+}
+
+function buildPremiumActionSolution(action) {
+  const task = Array.isArray(action?.developerTasks) ? action.developerTasks[0] : "";
+  return task || action?.reason || action?.evidence || "Strengthen the crawlable proof and customer-facing copy for this topic.";
+}
+
+function premiumInsightIcon(index) {
+  const icons = [
+    `<svg viewBox="0 0 24 24"><path d="M12 2 4 5v6.1c0 5 3.4 9.7 8 10.9 4.6-1.2 8-5.9 8-10.9V5l-8-3Z" /></svg>`,
+    `<svg viewBox="0 0 24 24"><path d="m12 2 2.2 4.9L19 8l-3.6 3.2.9 4.8-4.3-2.5-4.3 2.5.9-4.8L5 8l4.8-1.1L12 2Z" /></svg>`,
+    `<svg viewBox="0 0 24 24"><path d="M4 6h16v12H4zM7 9h10M7 12h7M7 15h5" /></svg>`,
+    `<svg viewBox="0 0 24 24"><path d="M12 3a8 8 0 1 0 8 8h-3l4 4 4-4h-3a10 10 0 1 1-2.9-7.1L17.7 5A8 8 0 0 0 12 3Z" /></svg>`,
+  ];
+  return icons[index % icons.length];
+}
+
+async function requestPremiumInsights() {
+  const scan = state.currentScan;
+  const actions = getPremiumActions(scan);
+  if (!scan || !actions.length) {
+    setStatus("Run a completed scan before requesting premium reoptimization.", "error");
+    return;
+  }
+
+  state.premiumRequestPending = true;
+  renderPremiumInsights();
+  try {
+    const result = await fetchJson("/api/premium-request", {
+      method: "POST",
+      body: JSON.stringify({
+        scanId: scan.id,
+        businessName: scan.businessName,
+        website: scan.website,
+        summary: `Premium reoptimization requested for ${scan.businessName}.`,
+        actions: actions.map((action) => ({
+          title: action.title,
+          impact: action.impact,
+          reason: action.reason,
+          evidence: action.evidence,
+          tasks: Array.isArray(action.developerTasks) ? action.developerTasks : [],
+        })),
+      }),
+    });
+    const delivery = result?.delivery?.status === "sent" ? "Text alert sent." : "Saved in Supabase queue.";
+    setStatus(`Premium request received. ${delivery}`, "ready");
+    showToast("Premium reoptimization request saved.");
+  } catch (error) {
+    setStatus(error.message || "Could not submit the premium request.", "error");
+  } finally {
+    state.premiumRequestPending = false;
+    renderPremiumInsights();
+  }
 }
 
 function renderSentiment() {
@@ -1888,16 +2159,6 @@ function renderSentiment() {
       ]);
     });
   });
-  document.querySelectorAll("[data-context-info]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const row = button.closest(".topic-context-row");
-      document.querySelectorAll(".topic-context-row.info-open").forEach((item) => {
-        if (item !== row) item.classList.remove("info-open");
-      });
-      row?.classList.toggle("info-open");
-    });
-  });
 }
 
 function sentimentFaceIcon(kind) {
@@ -1979,7 +2240,7 @@ function renderSelectedTopicSentiment(row, mentions = [], businessName = "", sen
                       <span>${index + 1}</span>
                       <div>
                         <strong>${escapeHtml(item.label)}</strong>
-                        <button class="context-info-button" type="button" data-context-info aria-label="${escapeAttr(firstSentence(item.summary, 180))}">i</button>
+                        <button class="context-info-button" type="button" aria-label="${escapeAttr(firstSentence(item.summary, 180))}">More information</button>
                         <p class="context-info-popover">${escapeHtml(firstSentence(item.summary, 180))}</p>
                       </div>
                     </article>
@@ -2111,173 +2372,6 @@ function buildSentimentByCategory(mentions) {
   return [...map.values()].slice(0, 8);
 }
 
-function conciseProblem(action) {
-  const copy = cleanInsightCopy(action.problem || action.evidence || action.reason);
-  return firstSentence(copy, 130);
-}
-
-function conciseSolution(action) {
-  if (action.solution) return firstSentence(cleanInsightCopy(action.solution), 155);
-  const title = `${action.title} ${action.reason}`.toLowerCase();
-  if (/top|proof|recommendation/.test(title)) return "Add one concise proof section with ratings, reviews, and credentials.";
-  if (/cost|price|value|afford|payment/.test(title)) return "Add a clear pricing or payment FAQ.";
-  if (/availability|urgent|hours|booking|scheduling/.test(title)) return "Make hours, scheduling, and next steps easy to verify.";
-  if (/local|area|location|near/.test(title)) return "Add a crawlable service-area section for nearby cities and neighborhoods.";
-  if (/source|citation|cite|page|crawl/.test(title)) return "Create one crawlable page that directly answers the missing customer question.";
-  if (/competitor/.test(title)) return "Add verifiable proof for the signal competitors are winning on.";
-  return firstSentence(action.developerTasks?.[0] || action.reason, 120);
-}
-
-function cleanInsightCopy(value) {
-  return String(value || "")
-    .replace(/^AI framed the issue as:\s*/i, "AI said ")
-    .replace(/^AI mentioned:\s*/i, "AI said ")
-    .replace(/\bHowever,\s*I should note that\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function solutionTitle(action) {
-  const title = `${action.title} ${action.solution || action.reason}`.toLowerCase();
-  if (/limited|local options|menlo park/.test(title)) return "Add Menlo Park proof";
-  if (/cannot verify|unclear|verify/.test(title)) return "Add verification FAQ";
-  if (/citation|source|site/.test(title)) return "Create cited FAQ page";
-  if (/competitor|gap/.test(title)) return "Match competitor proof";
-  if (/program|service|visibility|topic/.test(title)) return "Add service proof";
-  if (/local|area|location|near/.test(title)) return "Add local proof";
-  return "Update target page";
-}
-
-function insightIcon(index) {
-  const icons = [
-    `<svg viewBox="0 0 24 24"><path d="M9 21h6v-2H9v2Zm3-20a7 7 0 0 0-4.4 12.4c.8.6 1.4 1.6 1.4 2.6h6c0-1 .5-1.9 1.4-2.6A7 7 0 0 0 12 1Zm2.9 10.8c-1.2.9-1.9 2.1-2.1 3.2h-1.6c-.2-1.1-.9-2.3-2.1-3.2A4.6 4.6 0 0 1 7.4 8 4.6 4.6 0 0 1 12 3.4 4.6 4.6 0 0 1 16.6 8c0 1.5-.6 2.9-1.7 3.8Z" /></svg>`,
-    `<svg viewBox="0 0 24 24"><path d="m12 2 1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6L12 2Zm7 11 1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z" /></svg>`,
-    `<svg viewBox="0 0 24 24"><path d="M4 7h16v12H4V7Zm2 2v8h12V9H6Zm3-6h6l1 2H8l1-2Z" /></svg>`,
-    `<svg viewBox="0 0 24 24"><path d="M12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3Zm-1 14-3.5-3.5 1.41-1.41L11 13.17l4.59-4.58L17 10l-6 6Z" /></svg>`,
-    `<svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 1 0 8.94 10.06A9 9 0 0 0 13 3Zm1 14.5h-2v-2h2v2Zm0-4h-2V7h2v6.5Z" /></svg>`,
-  ];
-  return icons[Math.min(index, icons.length - 1)];
-}
-
-function getGroundedActions(scan) {
-  if (!scan?.metrics?.completedAnswers || insightsWereSent(scan)) return [];
-  const base = scan.metrics.actions || [];
-  const derived = deriveGroundedActions(scan);
-  const seen = new Set();
-  return [...derived, ...base]
-    .filter((action) => {
-      const key = `${action.title}|${action.reason}`.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 5);
-}
-
-function deriveGroundedActions(scan) {
-  const results = scan.results || [];
-  const metrics = scan.metrics || {};
-  const ownMentions = results.filter((result) => result.ownMentioned);
-  const actions = [];
-  const uncertain = ownMentions.find((result) => /unclear|cannot verify|could not verify|limited information|not enough/i.test(`${result.answer} ${result.context}`));
-  const negative = ownMentions.find((result) => result.sentiment === "negative");
-  const weakCategory = (metrics.categoryScores || [])
-    .filter((category) => category.attempts > 0)
-    .sort((a, b) => a.mentionRate - b.mentionRate)[0];
-  const topCompetitor = (metrics.competitors || [])[0];
-  const ownCitationCount = metrics.sources?.ownCitationCount || 0;
-  const totalCitationCount = metrics.sources?.totalCitationCount || 0;
-  const topExternalSource = (metrics.sources?.topSources || []).find((source) => source.host && !sameHost(source.host, scan.website));
-
-  if (negative) {
-    const issue = groundedSummaryForPattern(negative.answer || negative.context, /expensive|unclear|cannot verify|could not verify|limited|closed|not recommended|negative|concern|mixed/i);
-    const target = pageTargetForResult(negative);
-    actions.push({
-      title: "AI says local options are limited",
-      impact: "High impact",
-      reason: `AI described the business negatively for "${negative.prompt}".`,
-      evidence: issue,
-      problem: `AI framed the issue as: ${issue}`,
-      solution: `Add a ${target} proof block: services offered, who it serves, and 2-3 Menlo Park examples.`,
-      developerTasks: [`Update the ${target} with a concise section that addresses: ${issue}`],
-    });
-  }
-
-  if (uncertain) {
-    const issue = groundedSummaryForPattern(uncertain.answer || uncertain.context, /unclear|cannot verify|could not verify|limited information|not enough/i);
-    const target = pageTargetForResult(uncertain);
-    actions.push({
-      title: "AI cannot verify details",
-      impact: "High impact",
-      reason: `AI showed uncertainty for "${uncertain.prompt}".`,
-      evidence: issue,
-      problem: `AI could not verify this clearly: ${issue}`,
-      solution: `Add a ${target} FAQ for "${uncertain.prompt}" with hours, eligibility, contact, and next steps in plain text.`,
-      developerTasks: [`Add crawlable verification details to the ${target}.`],
-    });
-  }
-
-  if (totalCitationCount && ownCitationCount / totalCitationCount < 0.35 && topExternalSource) {
-    actions.push({
-      title: "Improve own-site citation coverage",
-      impact: "High impact",
-      reason: `AI relied more on ${topExternalSource.host} than your website for supporting information.`,
-      evidence: `${ownCitationCount} of ${totalCitationCount} tracked citations pointed to your site.`,
-      problem: `Only ${ownCitationCount} of ${totalCitationCount} tracked citations pointed to your own site.`,
-      solution: `Create an own-site FAQ that answers the prompt themes currently supported by ${topExternalSource.host}.`,
-      developerTasks: ["Create a focused, crawlable page that directly answers the prompt themes currently being sourced elsewhere."],
-    });
-  }
-
-  if (topCompetitor?.mentionRate > metrics.mentionRate) {
-    actions.push({
-      title: `Close the gap with ${topCompetitor.name}`,
-      impact: "Medium impact",
-      reason: `${topCompetitor.name} appears more often in AI answers.`,
-      evidence: `${topCompetitor.name} mention rate is ${topCompetitor.mentionRate}% vs. ${metrics.mentionRate}% for this business.`,
-      problem: `${topCompetitor.name} is showing up more often than you in completed answers.`,
-      solution: `Add reviews, credentials, and location proof for the topic where ${topCompetitor.name} is winning.`,
-      developerTasks: ["Add verifiable proof points for the categories where this competitor appears most often."],
-    });
-  }
-
-  if (weakCategory && weakCategory.mentionRate < 35) {
-    actions.push({
-      title: `Strengthen ${weakCategory.label.toLowerCase()} visibility`,
-      impact: "High impact",
-      reason: `AI rarely mentions the business for ${weakCategory.label.toLowerCase()} prompts.`,
-      evidence: `${weakCategory.label} mention rate is ${weakCategory.mentionRate}% across ${weakCategory.attempts} answer${weakCategory.attempts === 1 ? "" : "s"}.`,
-      problem: `${weakCategory.label} visibility is low at ${weakCategory.mentionRate}%.`,
-      solution: `Add a ${weakCategory.label.toLowerCase()} section with customer wording, proof, local details, and next steps.`,
-      developerTasks: ["Add a concise page section that answers this topic in customer wording with proof and next steps."],
-    });
-  }
-
-  return actions;
-}
-
-function pageTargetForResult(result) {
-  const text = `${result?.category || ""} ${result?.prompt || ""}`.toLowerCase();
-  if (/temple|pooja|puja|aarthi|aarti|darshan|devotee|hindu|religious/.test(text)) return "Temple Services / Pooja Page";
-  if (/sports|athlete|youth sports/.test(text)) return "Youth Sports Program Details Page";
-  if (/family|program|service|class/.test(text)) return "Service Details Page";
-  if (/cost|price|value|afford|payment/.test(text)) return "Pricing Or Value Page";
-  if (/availability|urgent|scheduling|booking|hours/.test(text)) return "Availability Or Scheduling Page";
-  if (/local|near|location/.test(text)) return "Location / Service Area Page";
-  if (/trust|proof|top|recommendation/.test(text)) return "Proof / Recommendations Page";
-  return "Relevant Service Page";
-}
-
-function sameHost(hostOrUrl, website) {
-  try {
-    const left = hostOrUrl.includes("://") ? new URL(hostOrUrl).hostname : hostOrUrl;
-    const right = new URL(website).hostname;
-    return left.replace(/^www\./, "") === right.replace(/^www\./, "");
-  } catch {
-    return false;
-  }
-}
-
 function firstSentence(value, maxLength = 140) {
   const sentence = String(value || "")
     .split(/(?<=[.!?])\s+/)[0]
@@ -2372,8 +2466,8 @@ function renderTrend() {
   els.trendChart.innerHTML = `
     <defs>
       <linearGradient id="trendAreaGradient" x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0%" stop-color="#5146f5" stop-opacity="0.18"></stop>
-        <stop offset="100%" stop-color="#5146f5" stop-opacity="0.02"></stop>
+        <stop offset="0%" stop-color="#1d4ed8" stop-opacity="0.16"></stop>
+        <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.02"></stop>
       </linearGradient>
     </defs>
     ${gridRows}
@@ -2470,13 +2564,15 @@ function showAnswer(resultId) {
   els.answerDialog.showModal();
 }
 
-function setScanning(isScanning) {
+function setScanning(isScanning, auto = false) {
   state.isScanning = isScanning;
   if (isScanning) {
     state.scanStartedAt = Date.now();
     if (els.statusStrip) {
       els.statusStrip.hidden = false;
-      els.statusText.textContent = "Scanning the site, inferring location, generating prompts, and checking AI answers. This can take a few minutes.";
+      els.statusText.textContent = auto
+        ? "We are doing your scan now. This can take a few minutes."
+        : "Scanning the site, inferring location, generating prompts, and checking AI answers. This can take a few minutes.";
       els.statusStrip.classList.remove("ready", "error");
     }
     clearTimeout(state.longScanTimer);
@@ -2505,9 +2601,18 @@ function setStatus(text, type = "working") {
   els.statusStrip.classList.toggle("error", type === "error");
 }
 
-function setDeveloperButtonsVisible(isVisible) {
-  [els.developerEmailButton, els.actionEmailButton].filter(Boolean).forEach((button) => {
-    button.hidden = !isVisible;
+function bindPasswordToggles() {
+  document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = document.getElementById(button.dataset.passwordToggle || "");
+      if (!(input instanceof HTMLInputElement)) return;
+      const shouldShow = input.type === "password";
+      input.type = shouldShow ? "text" : "password";
+      button.setAttribute("aria-label", shouldShow ? "Hide password" : "Show password");
+      button.innerHTML = shouldShow
+        ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 4.3 17.2 15.4-1.5 1.6-3.2-2.9a11.4 11.4 0 0 1-3.5.6C5.4 19 1.5 12.5 1.5 12a20 20 0 0 1 4.2-4.7L1.5 5.9 3 4.3Zm5.1 4.5A4 4 0 0 0 12 16a4 4 0 0 0 1.7-.4l-1.8-1.6c-.8.2-1.7-.1-2.2-.9L8.1 8.8Zm3.9-3.3c6.6 0 10.5 6.5 10.5 6.5a19 19 0 0 1-4.7 5l-1.6-1.4A16.6 16.6 0 0 0 19.9 12c-1-1.3-3.9-4.3-7.9-4.3-.9 0-1.8.1-2.7.4L7.6 6.5c1.4-.6 2.9-1 4.4-1Z" /></svg>`
+        : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12s3.9-6.5 10.5-6.5S22.5 12 22.5 12 18.6 18.5 12 18.5 1.5 12 1.5 12Zm10.5 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-2.2a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6Z" /></svg>`;
+    });
   });
 }
 
@@ -2549,7 +2654,11 @@ async function fetchJson(url, options = {}) {
     headers,
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Request failed.");
+  if (!response.ok) {
+    const error = new Error(data.error || "Request failed.");
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 

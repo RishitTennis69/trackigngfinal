@@ -6,7 +6,7 @@
     <title>Gleo GEO Insights</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -69,8 +69,8 @@
                 <svg viewBox="0 0 440 180">
                   <defs>
                     <linearGradient id="previewArea" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stop-color="#5146f5" stop-opacity="0.24" />
-                      <stop offset="100%" stop-color="#5146f5" stop-opacity="0" />
+                      <stop offset="0%" stop-color="#1d4ed8" stop-opacity="0.18" />
+                      <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0" />
                     </linearGradient>
                   </defs>
                   <path class="preview-grid" d="M24 38H420M24 82H420M24 126H420" />
@@ -128,11 +128,11 @@
             <article>
               <span>04</span>
               <div class="step-visual fix-visual" aria-hidden="true">
-                <b>Problem</b><p>Emergency hours are unclear.</p>
-                <b>Fix</b><p>Add a clear emergency service page.</p>
+                <b>Trend</b><p>Mentions are rising.</p>
+                <b>Gap</b><p>Competitors still appear in local searches.</p>
               </div>
-              <h3>Send Action Items</h3>
-              <p>Turn the scan into concise developer tasks tied to the exact AI visibility issue Gleo found.</p>
+              <h3>Track The Shifts</h3>
+              <p>Watch how mention rate, first-choice share, sentiment, and competitor visibility change as your business evolves.</p>
             </article>
           </div>
         </section>
@@ -149,22 +149,22 @@
             </details>
             <details>
               <summary>What does the scan measure?</summary>
-              <p>It measures mention visibility, first-choice share, average rank, competitor presence, sentiment, and action items.</p>
+              <p>It measures mention visibility, first-choice share, average rank, competitor presence, and sentiment.</p>
             </details>
             <details>
               <summary>How are prompts generated?</summary>
               <p>Gleo reads the site first, then builds customer-style prompts around the business, service categories, local intent, and nearby comparison searches.</p>
             </details>
             <details>
-              <summary>Can I send fixes to my developer?</summary>
-              <p>Yes. Actionable Insights turns scan evidence into concise website fixes that can be sent directly to a developer.</p>
+              <summary>Can I export or share results?</summary>
+              <p>Not yet. Gleo is focused on tracking how AI mentions and ranks your business inside the dashboard.</p>
             </details>
           </div>
         </section>
 
         <section class="landing-section landing-cta">
           <p class="eyebrow">Start today</p>
-          <h2>Start Understanding How AI Sees Your Business.</h2>
+          <h2>Start Understanding How AI Sees <span>Your Business</span>.</h2>
           <p>Run the first scan, see where you show up, and turn visibility gaps into clear fixes.</p>
           <button class="primary-button border-beam-button" type="button" data-login-open>Level Up Today</button>
         </section>
@@ -175,16 +175,10 @@
       <div class="login-shell">
         <div class="login-card">
           <div>
-            <p class="eyebrow">Create your workspace</p>
-            <h1>Start With Gleo</h1>
-            <p>Sign up with your business details to explore your AI visibility dashboard.</p>
+            <p class="eyebrow">Get tracking started</p>
+            <h1>Let’s get your tracking started</h1>
+            <p>Start with your name, email, and password. We’ll take care of the business tracking details right after.</p>
           </div>
-          <button class="google-login-button" type="button" id="googleLoginButton">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 12.2c0-.7-.1-1.3-.2-1.9H12v3.6h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.2Z"/><path d="M12 22c2.7 0 5-0.9 6.6-2.5l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22Z"/><path d="M6.4 13.9A6 6 0 0 1 6 12c0-.7.1-1.3.4-1.9V7.5H3.1A10 10 0 0 0 2 12c0 1.6.4 3.1 1.1 4.5l3.3-2.6Z"/><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.8 9.8 0 0 0 12 2a10 10 0 0 0-8.9 5.5l3.3 2.6C7.2 7.8 9.4 6 12 6Z"/></svg>
-            Sign Up With Google
-          </button>
-          <p class="login-helper">Enter your name and email below first, then continue with Google to add your business details.</p>
-          <div class="login-divider"><span>Or continue with email</span></div>
           <form class="email-login-form" id="signupForm">
             <label>
               <span>Full Name</span>
@@ -195,14 +189,15 @@
               <input id="signupEmailInput" type="email" placeholder="you@business.com" autocomplete="email" required />
             </label>
             <label>
-              <span>Business Name</span>
-              <input id="signupBusinessInput" type="text" placeholder="Willow Creek Dental" autocomplete="organization" required />
+              <span>Password</span>
+              <span class="password-input-wrap">
+                <input id="signupPasswordInput" type="password" placeholder="Create a password" autocomplete="new-password" required />
+                <button class="password-toggle-button" type="button" data-password-toggle="signupPasswordInput" aria-label="Show password">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12s3.9-6.5 10.5-6.5S22.5 12 22.5 12 18.6 18.5 12 18.5 1.5 12 1.5 12Zm10.5 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-2.2a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6Z" /></svg>
+                </button>
+              </span>
             </label>
-            <label>
-              <span>Business Website</span>
-              <input id="signupWebsiteInput" type="url" placeholder="https://yourbusiness.com" autocomplete="url" required />
-            </label>
-            <button class="secondary-login-button" type="submit" id="emailSignupButton">Sign Up</button>
+            <button class="secondary-login-button" type="submit" id="emailSignupButton">Continue</button>
           </form>
           <div class="login-option-row">
             <button class="text-button" type="button" id="signupForgotPasswordButton">Forgot Password?</button>
@@ -219,12 +214,28 @@
           <div>
             <p class="eyebrow">Welcome back</p>
             <h1>Sign In to Gleo</h1>
-            <p>Continue with Google to open your AI visibility dashboard.</p>
+            <p>Enter your name, email, and password to open your AI visibility dashboard.</p>
           </div>
-          <button class="google-login-button" type="button" id="googleSignInButton">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 12.2c0-.7-.1-1.3-.2-1.9H12v3.6h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.2Z"/><path d="M12 22c2.7 0 5-0.9 6.6-2.5l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22Z"/><path d="M6.4 13.9A6 6 0 0 1 6 12c0-.7.1-1.3.4-1.9V7.5H3.1A10 10 0 0 0 2 12c0 1.6.4 3.1 1.1 4.5l3.3-2.6Z"/><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.8 9.8 0 0 0 12 2a10 10 0 0 0-8.9 5.5l3.3 2.6C7.2 7.8 9.4 6 12 6Z"/></svg>
-            Sign In With Google
-          </button>
+          <form class="email-login-form" id="signInForm">
+            <label>
+              <span>Full Name</span>
+              <input id="signInNameInput" type="text" placeholder="Alex Rivera" autocomplete="name" required />
+            </label>
+            <label>
+              <span>Email</span>
+              <input id="signInEmailInput" type="email" placeholder="you@business.com" autocomplete="email" required />
+            </label>
+            <label>
+              <span>Password</span>
+              <span class="password-input-wrap">
+                <input id="signInPasswordInput" type="password" placeholder="Your password" autocomplete="current-password" required />
+                <button class="password-toggle-button" type="button" data-password-toggle="signInPasswordInput" aria-label="Show password">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12s3.9-6.5 10.5-6.5S22.5 12 22.5 12 18.6 18.5 12 18.5 1.5 12 1.5 12Zm10.5 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-2.2a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6Z" /></svg>
+                </button>
+              </span>
+            </label>
+            <button class="secondary-login-button" type="submit" id="emailSignInButton">Sign In</button>
+          </form>
           <div class="login-option-row">
             <button class="text-button" type="button" id="forgotPasswordButton">Forgot Password?</button>
           </div>
@@ -238,9 +249,9 @@
       <div class="login-shell">
         <div class="login-card">
           <div>
-            <p class="eyebrow">Almost there</p>
-            <h1>Tell Us About Your Business</h1>
-            <p id="businessSetupIntro">Add your business name and website so Gleo can build your visibility scan.</p>
+            <p class="eyebrow">Tracking setup</p>
+            <h1>Let’s get your tracking started</h1>
+            <p id="businessSetupIntro">We already have your account set up. Add the business details you want us to track next.</p>
           </div>
           <form class="email-login-form" id="businessSetupForm">
             <label>
@@ -254,6 +265,27 @@
             <button class="secondary-login-button" type="submit" id="businessSetupSubmitButton">Continue to Dashboard</button>
           </form>
           <button class="text-button" type="button" id="backToSignupButton">Back to sign up</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="login-page hidden" id="trackingLaunchPage">
+      <div class="login-shell">
+        <div class="login-card tracking-launch-card">
+          <div>
+            <p class="eyebrow">Tracking started</p>
+            <p class="plan-pill" id="premiumLaunchBadge" hidden>Premium Access</p>
+            <h1 id="trackingLaunchTitle">Your tracking has been started.</h1>
+            <p id="trackingLaunchText">We’re pulling together your first scan now. This usually takes a few minutes.</p>
+          </div>
+          <div class="tracking-launch-status" aria-hidden="true">
+            <span class="tracking-launch-orbit"></span>
+            <span class="tracking-launch-pulse"></span>
+          </div>
+          <p class="tracking-launch-hint" id="trackingLaunchHint">Weâ€™ll unlock the dashboard here as soon as the first score is ready.</p>
+          <div class="tracking-launch-actions">
+            <button class="secondary-login-button" type="button" id="openDashboardButton">Open dashboard</button>
+          </div>
         </div>
       </div>
     </section>
@@ -274,13 +306,13 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h7M4 12h11M4 17h7M17 7h3M14 7a2 2 0 1 0-4 0 2 2 0 0 0 4 0ZM20 17h-3M14 17a2 2 0 1 1 4 0 2 2 0 0 1-4 0Z" /></svg>
             Detailed Metrics
           </button>
-          <button class="nav-item" type="button" data-panel="insights">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3ZM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15ZM5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8L5 15Z" /></svg>
-            Actionable Insights
-          </button>
           <button class="nav-item" type="button" data-panel="sentiment">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM8.5 9h.01M15.5 9h.01M8 13.5c1 1.4 2.3 2.1 4 2.1s3-.7 4-2.1" /></svg>
             Sentiment Analysis
+          </button>
+          <button class="nav-item" type="button" data-panel="premium" id="premiumNavItem" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 2.4 5L20 8l-4 3.7.9 5.3L12 14.4 7.1 17l.9-5.3L4 8l5.6-1L12 2Z" /></svg>
+            Actionable Insights
           </button>
         </nav>
 
@@ -292,9 +324,12 @@
           <div class="profile-menu-wrap">
             <button class="sidebar-profile" id="profileMenuButton" type="button" aria-expanded="false" aria-controls="profileMenu">
               <span class="avatar" id="profileAvatar">G</span>
-              <span>
+              <span class="sidebar-profile-copy">
                 <strong id="profileName">Guest</strong>
-                <small>Workspace</small>
+                <span class="sidebar-profile-meta">
+                  <small id="profileRoleLabel">Workspace</small>
+                  <small class="plan-pill inline" id="premiumPlanBadge" hidden>Premium</small>
+                </span>
               </span>
             </button>
             <div class="profile-menu hidden" id="profileMenu">
@@ -340,6 +375,14 @@
               <p class="eyebrow">Tracking setup</p>
               <h2>Start with your website, then we build the AI visibility scan.</h2>
               <p>We infer location and service areas from the site instead of asking users to type them in.</p>
+            </div>
+          </div>
+          <div class="scan-progress-card hidden" id="scanProgressCard" role="status" aria-live="polite">
+            <span class="scan-progress-orbit" aria-hidden="true"></span>
+            <div class="scan-progress-copy">
+              <p class="eyebrow">Scan in progress</p>
+              <h3 id="scanProgressTitle">We are doing your scan.</h3>
+              <p id="scanProgressText">This will take a few minutes. We will notify you here when it is done.</p>
             </div>
           </div>
           <form id="scanForm" class="scan-form">
@@ -446,6 +489,10 @@
               <span>Topic</span>
               <select id="metricsCategorySelect"></select>
             </label>
+            <label class="metrics-mode-toggle">
+              <input id="competitorModeToggle" type="checkbox" />
+              <span>Competitor mode</span>
+            </label>
           </div>
           <div class="metrics-empty-state" id="metricsEmptyState">
             <h3>Choose An LLM And Topic.</h3>
@@ -475,16 +522,6 @@
           </div>
         </section>
 
-        <section class="panels" id="insights" aria-label="Insights">
-          <div class="panel-header">
-            <div>
-              <h2>Actionable Insights</h2>
-              <p>Focused improvements to increase AI mentions and answer placement.</p>
-            </div>
-          </div>
-          <div class="insight-grid" id="insightGrid"></div>
-        </section>
-
         <section class="panels" id="sentiment" aria-label="Sentiment Analysis">
           <div class="panel-header">
             <div>
@@ -493,6 +530,16 @@
             </div>
           </div>
           <div class="sentiment-grid" id="sentimentGrid"></div>
+        </section>
+
+        <section class="panels" id="premium" aria-label="Actionable Insights">
+          <div class="panel-header">
+            <div>
+              <h2>Actionable Insights</h2>
+              <p>Premium reoptimization recommendations based on the latest completed scan.</p>
+            </div>
+          </div>
+          <div class="insight-grid" id="premiumGrid"></div>
         </section>
 
         <section class="panels" id="settings" aria-label="Settings">
@@ -512,25 +559,13 @@ OPENROUTER_API_KEY=...</code></pre>
         </section>
 
         <section class="empty-state" id="emptyState">
-          <h2>No scan results yet</h2>
-          <p>Start with the business name and website. Gleo will infer location and service areas from the site, then populate the dashboard with real scan output.</p>
+          <h2 id="emptyStateTitle">No scan results yet</h2>
+          <p id="emptyStateText">Start with the business name and website. Gleo will infer location and service areas from the site, then populate the dashboard with real scan output.</p>
         </section>
       </main>
     </div>
 
     <div class="app-toast hidden" id="appToast" role="status" aria-live="polite"></div>
-
-    <dialog class="insights-sent-dialog" id="insightsSentDialog">
-      <div class="insights-sent-card">
-        <span class="insights-sent-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 13.2-2.5-2.5 1.4-1.4 1.1 1.1 3.9-3.9 1.4 1.4-5.3 5.3Z" /></svg>
-        </span>
-        <p class="eyebrow">Insights sent</p>
-        <h2>Your recommendations are on the way</h2>
-        <p>We shared your action items with Gleo and will follow up with your developer.</p>
-        <button class="primary-button border-beam-button" type="button" id="insightsSentCloseButton">Got it</button>
-      </div>
-    </dialog>
 
     <dialog id="answerDialog">
       <form method="dialog">

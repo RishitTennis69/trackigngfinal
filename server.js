@@ -1,4 +1,5 @@
 import http from "node:http";
+import https from "node:https";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -10,15 +11,44 @@ const DATA_DIR = path.join(__dirname, "data");
 const SCANS_FILE = path.join(DATA_DIR, "scans.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
-const HANDOFFS_FILE = path.join(DATA_DIR, "handoffs.json");
+const SERVICE_REQUESTS_FILE = path.join(DATA_DIR, "service-requests.json");
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const DEVELOPER_EMAIL = "gleo.howtoreach@gmail.com";
 
 loadDotEnv();
 
 const PORT = Number(process.env.PORT || 4173);
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const SUPABASE_PROJECT_MODE = String(process.env.SUPABASE_PROJECT_MODE || "legacy").trim().toLowerCase();
+const USE_SHARED_SUPABASE = USE_SUPABASE && SUPABASE_PROJECT_MODE === "shared";
+const ENTITLEMENT_ALLOWED_STATUSES = String(process.env.ENTITLEMENT_ALLOWED_STATUSES || "active,trialing")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+const PREMIUM_ENTITLEMENT_PLANS = String(process.env.PREMIUM_ENTITLEMENT_PLANS || "gleo-premium,gleo-reoptimization,tracking-premium")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 const MAX_CRAWL_PAGES = clamp(Number(process.env.MAX_CRAWL_PAGES || 8), 1, 16);
 const MAX_SCAN_PROMPTS = clamp(Number(process.env.MAX_SCAN_PROMPTS || 18), 1, 18);
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
+const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "";
+const TWILIO_TO_NUMBER = process.env.TWILIO_TO_NUMBER || "";
+const ADMIN_DASHBOARD_PATH = normalizeAdminDashboardPath(process.env.ADMIN_DASHBOARD_PATH || "");
+const ADMIN_EMAIL = cleanText(process.env.ADMIN_EMAIL || process.env.RESEND_DEVELOPER_EMAIL || "").toLowerCase();
+const ADMIN_PASSWORD_HASH =
+  process.env.ADMIN_PASSWORD_HASH ||
+  (process.env.ADMIN_PASSWORD
+    ? hashPassword(process.env.ADMIN_PASSWORD)
+    : process.env.ADMIN_DASHBOARD_KEY
+      ? hashPassword(process.env.ADMIN_DASHBOARD_KEY)
+      : "");
+const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_DASHBOARD_KEY || "";
+const ADMIN_DASHBOARD_ENABLED = Boolean(ADMIN_DASHBOARD_PATH && ADMIN_EMAIL && ADMIN_PASSWORD_HASH && ADMIN_SESSION_SECRET);
+const ADMIN_SESSION_COOKIE = "gleo_admin_session";
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 const PROVIDERS = {
   openai: {
@@ -55,20 +85,30 @@ const server = http.createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const validationError = validateUserPayload(payload);
       if (validationError) return sendJson(response, { error: validationError }, 400);
-      const user = await upsertUser(payload);
+      const user = await createUser(payload);
       const token = await createSession(user.id);
       return sendJson(response, { user: publicUser(user), token });
     }
 
     if (url.pathname === "/api/auth/login" && request.method === "POST") {
       const payload = await readJsonBody(request);
+      const name = cleanText(payload?.name || "");
       const email = cleanText(payload?.email || "").toLowerCase();
+      const password = String(payload?.password || "");
+      if (!name) return sendJson(response, { error: "Enter your full name." }, 400);
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return sendJson(response, { error: "Enter a valid email address." }, 400);
       }
-      const users = await readUsers();
-      const user = users.find((entry) => entry.email.toLowerCase() === email);
+      if (!password) return sendJson(response, { error: "Enter your password." }, 400);
+      await ensureUserHasAccess({ email });
+      const user = USE_SHARED_SUPABASE ? await readSharedUserByEmail(email) : (await readUsers()).find((entry) => entry.email.toLowerCase() === email);
       if (!user) return sendJson(response, { error: "No account found for that email. Sign up first." }, 404);
+      if (normalized(user.name) !== normalized(name)) {
+        return sendJson(response, { error: "The name does not match this account." }, 401);
+      }
+      if (!verifyPassword(password, user.passwordHash || "")) {
+        return sendJson(response, { error: "Incorrect password." }, 401);
+      }
       const token = await createSession(user.id);
       return sendJson(response, { user: publicUser(user), token });
     }
@@ -76,6 +116,7 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === "/api/auth/me" && request.method === "GET") {
       const user = await getAuthenticatedUser(request);
       if (!user) return sendJson(response, { error: "Not authenticated." }, 401);
+      await ensureUserHasAccess(user);
       return sendJson(response, { user: publicUser(user) });
     }
 
@@ -90,39 +131,107 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (url.pathname === "/api/scans" && request.method === "GET") {
-      return sendJson(response, { scans: await readScans() });
+      const user = await getAuthenticatedUser(request);
+      if (!user) return sendJson(response, { scans: [] });
+      await ensureUserHasAccess(user);
+      return sendJson(response, { scans: await readScans(user.id) });
     }
 
     if (url.pathname === "/api/scans/latest" && request.method === "GET") {
-      const scans = await readScans();
+      const user = await getAuthenticatedUser(request);
+      if (!user) return sendJson(response, { scan: null });
+      await ensureUserHasAccess(user);
+      const scans = await readScans(user.id);
       return sendJson(response, { scan: scans.at(-1) || null });
     }
 
     if (url.pathname === "/api/scan" && request.method === "POST") {
+      const user = await getAuthenticatedUser(request);
+      if (!user) return sendJson(response, { error: "Sign in before running a scan." }, 401);
+      await ensureUserHasAccess(user);
       const payload = await readJsonBody(request);
-      const scans = await readScans();
+      const scans = await readScans(user.id);
       const scan = await runScan(payload, scans);
-      scans.push(scan);
-      await writeScans(scans.slice(-50));
+      await appendScanForUser(user.id, scan);
       return sendJson(response, { scan });
     }
 
-    if (url.pathname === "/api/developer-handoff" && request.method === "POST") {
-      const payload = await readJsonBody(request);
+    if (url.pathname === "/api/premium-request" && request.method === "POST") {
       const user = await getAuthenticatedUser(request);
-      const handoff = await recordDeveloperHandoff(payload, user);
-      return sendJson(response, { ok: true, handoffId: handoff.id });
+      if (!user) return sendJson(response, { error: "Sign in before requesting premium help." }, 401);
+      const payload = await readJsonBody(request);
+      const requestRecord = await createPremiumServiceRequest(user, payload);
+      return sendJson(response, {
+        ok: true,
+        requestId: requestRecord.id,
+        delivery: requestRecord.delivery,
+      });
+    }
+
+    if (url.pathname === "/api/admin/overview" && request.method === "GET") {
+      if (!ADMIN_DASHBOARD_ENABLED) {
+        return sendText(response, "Not found", 404);
+      }
+      if (!getAuthenticatedAdmin(request)) {
+        return sendText(response, "Not found", 404);
+      }
+      return sendJson(response, await getAdminOverview());
+    }
+
+    if (url.pathname === "/api/admin/login" && request.method === "POST") {
+      if (!ADMIN_DASHBOARD_ENABLED) {
+        return sendText(response, "Not found", 404);
+      }
+      const payload = await readJsonBody(request);
+      const email = cleanText(payload?.email || "").toLowerCase();
+      const password = String(payload?.password || "");
+      if (!email || !password) {
+        return sendJson(response, { error: "Enter your admin email and password." }, 400);
+      }
+      if (email !== ADMIN_EMAIL || !verifyPassword(password, ADMIN_PASSWORD_HASH)) {
+        return sendJson(response, { error: "Incorrect admin login." }, 401);
+      }
+      return sendJson(
+        response,
+        { ok: true, admin: { email: ADMIN_EMAIL } },
+        200,
+        { "Set-Cookie": createAdminSessionCookie(ADMIN_EMAIL) },
+      );
+    }
+
+    if (url.pathname === "/api/admin/me" && request.method === "GET") {
+      if (!ADMIN_DASHBOARD_ENABLED) {
+        return sendText(response, "Not found", 404);
+      }
+      const admin = getAuthenticatedAdmin(request);
+      if (!admin) return sendJson(response, { authenticated: false }, 401);
+      return sendJson(response, { authenticated: true, admin });
+    }
+
+    if (url.pathname === "/api/admin/logout" && request.method === "POST") {
+      if (!ADMIN_DASHBOARD_ENABLED) {
+        return sendText(response, "Not found", 404);
+      }
+      return sendJson(response, { ok: true }, 200, { "Set-Cookie": clearAdminSessionCookie() });
+    }
+
+    if (isBlockedPublicAdminPath(url.pathname)) {
+      return sendText(response, "Not found", 404);
     }
 
     return serveStatic(url.pathname, response);
   } catch (error) {
-    console.error(error);
+    if (error.statusCode && error.statusCode < 500) {
+      console.warn(error.message);
+    } else {
+      console.error(error);
+    }
     return sendJson(
       response,
       {
         error: error.message || "Something went wrong while running the scan.",
       },
-      500,
+      error.statusCode || 500,
     );
   }
 });
@@ -1593,7 +1702,290 @@ async function readJsonBody(request) {
   return JSON.parse(raw);
 }
 
-async function readScans() {
+async function readCollection(collection) {
+  const url = `${SUPABASE_URL}/rest/v1/gleo_records?collection=eq.${encodeURIComponent(collection)}&select=data`;
+  const response = await fetch(url, { headers: supabaseHeaders() });
+  if (!response.ok) throw new Error(`Supabase read failed for ${collection}.`);
+  const rows = await response.json();
+  return Array.isArray(rows?.[0]?.data) ? rows[0].data : [];
+}
+
+async function writeCollection(collection, data) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/gleo_records`, {
+    method: "POST",
+    headers: {
+      ...supabaseHeaders(),
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates",
+    },
+    body: JSON.stringify({ collection, data, updated_at: new Date().toISOString() }),
+  });
+  if (!response.ok) throw new Error(`Supabase write failed for ${collection}.`);
+}
+
+function supabaseHeaders() {
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+  };
+}
+
+async function supabaseRequest(pathname, { method = "GET", headers = {}, body = "" } = {}) {
+  const url = new URL(`${SUPABASE_URL}${pathname}`);
+  const requestBody = typeof body === "string" ? body : body ? JSON.stringify(body) : "";
+  const requestHeaders = {
+    ...headers,
+  };
+  if (requestBody && requestHeaders["Content-Length"] === undefined) {
+    requestHeaders["Content-Length"] = Buffer.byteLength(requestBody);
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = https.request(
+      url,
+      {
+        method,
+        headers: requestHeaders,
+        timeout: 30000,
+      },
+      (response) => {
+        let chunks = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          chunks += chunk;
+        });
+        response.on("end", () => {
+          resolve({
+            ok: response.statusCode >= 200 && response.statusCode < 300,
+            status: response.statusCode || 500,
+            text: chunks,
+          });
+        });
+      },
+    );
+
+    request.on("timeout", () => {
+      request.destroy(new Error("Supabase request timed out."));
+    });
+    request.on("error", reject);
+    if (requestBody) request.write(requestBody);
+    request.end();
+  });
+}
+
+async function supabaseSelect(table, { filters = {}, limit, order, select = "*" } = {}) {
+  const params = new URLSearchParams({ select });
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, `eq.${value}`);
+  }
+  if (order) params.set("order", order);
+  if (limit) params.set("limit", String(limit));
+  const response = await supabaseRequest(`/rest/v1/${table}?${params.toString()}`, {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) throw new Error(`Supabase read failed for ${table}.`);
+  return response.text ? JSON.parse(response.text) : [];
+}
+
+async function supabaseSelectSafe(table, options = {}, fallback = []) {
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await supabaseSelect(table, options);
+    } catch (error) {
+      if (attempt === maxAttempts) {
+        console.error(`Supabase safe read failed for ${table}.`, error);
+        return fallback;
+      }
+    }
+  }
+  return fallback;
+}
+
+async function supabaseInsert(table, rows) {
+  const payload = Array.isArray(rows) ? rows : [rows];
+  const response = await supabaseRequest(`/rest/v1/${table}`, {
+    method: "POST",
+    headers: {
+      ...supabaseHeaders(),
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`Supabase insert failed for ${table}.`);
+  return response.text ? JSON.parse(response.text) : [];
+}
+
+async function supabaseUpsert(table, rows, onConflict) {
+  const payload = Array.isArray(rows) ? rows : [rows];
+  const query = onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : "";
+  const response = await supabaseRequest(`/rest/v1/${table}${query}`, {
+    method: "POST",
+    headers: {
+      ...supabaseHeaders(),
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`Supabase upsert failed for ${table}.`);
+  return response.text ? JSON.parse(response.text) : [];
+}
+
+async function supabaseDelete(table, filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, `eq.${value}`);
+  }
+  const response = await supabaseRequest(`/rest/v1/${table}?${params.toString()}`, {
+    method: "DELETE",
+    headers: {
+      ...supabaseHeaders(),
+      Prefer: "return=minimal",
+    },
+  });
+  if (!response.ok) throw new Error(`Supabase delete failed for ${table}.`);
+}
+
+function normalizeEntitlementStatus(status) {
+  return String(status || "").trim().toLowerCase();
+}
+
+function parseTrialEndsAt(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function entitlementTrialIsActive(entitlement) {
+  if (normalizeEntitlementStatus(entitlement?.status) !== "trialing") return false;
+  const trialEndsAt = parseTrialEndsAt(entitlement?.trial_ends_at);
+  return Boolean(trialEndsAt && trialEndsAt.getTime() > Date.now());
+}
+
+function entitlementStatusAllowed(status, entitlement = null) {
+  const normalizedStatus = normalizeEntitlementStatus(status);
+  if (normalizedStatus === "trialing") {
+    return entitlementTrialIsActive(entitlement);
+  }
+  return ENTITLEMENT_ALLOWED_STATUSES.includes(normalizedStatus);
+}
+
+function entitlementHasPremiumInsights(entitlement) {
+  if (!entitlement) return false;
+  if (entitlement.premium_insights === true) return true;
+  const plan = String(entitlement.plan || "").trim().toLowerCase();
+  return Boolean(plan && PREMIUM_ENTITLEMENT_PLANS.includes(plan));
+}
+
+function entitlementAccessTier(entitlement) {
+  if (!entitlement) return "none";
+  if (entitlementHasPremiumInsights(entitlement)) return "premium";
+  if (entitlementTrialIsActive(entitlement)) return "included_month";
+  if (entitlementStatusAllowed(entitlement.status, entitlement)) return "standard";
+  if (normalizeEntitlementStatus(entitlement.status) === "trialing") return "expired_trial";
+  return "blocked";
+}
+
+async function readEntitlementByEmail(email) {
+  if (!USE_SHARED_SUPABASE) return null;
+  const rows = await supabaseSelect("entitlements", {
+    filters: { email: cleanText(email || "").toLowerCase() },
+    limit: 1,
+  });
+  return rows[0] || null;
+}
+
+async function ensureUserHasAccess(userLike) {
+  if (!USE_SHARED_SUPABASE) return true;
+  const email = cleanText(userLike?.email || "").toLowerCase();
+  if (!email) {
+    const error = new Error("This dashboard requires a paid Gleo access record before sign-in.");
+    error.statusCode = 403;
+    throw error;
+  }
+  const entitlement = await readEntitlementByEmail(email);
+  if (!entitlement) {
+    const error = new Error("No paid Gleo access was found for this email yet. Complete payment on the Gleo landing page first.");
+    error.statusCode = 403;
+    throw error;
+  }
+  const status = normalizeEntitlementStatus(entitlement.status);
+  if (status === "trialing" && !entitlementTrialIsActive(entitlement)) {
+    const error = new Error("Your included month of tracking has ended. Choose a monthly plan to keep monitoring your AI visibility.");
+    error.statusCode = 403;
+    throw error;
+  }
+  if (!entitlementStatusAllowed(entitlement.status, entitlement)) {
+    const error = new Error("This dashboard access is not active right now. Choose a plan on the Gleo landing page to continue.");
+    error.statusCode = 403;
+    throw error;
+  }
+  return entitlement;
+}
+
+function mergeSharedUser(profile, workspace, credential, entitlement) {
+  if (!profile) return null;
+  return {
+    id: profile.id,
+    name: profile.full_name || "",
+    email: profile.email || "",
+    passwordHash: credential?.password_hash || "",
+    businessName: workspace?.business_name || "",
+    website: workspace?.website || "",
+    trialEndsAt: entitlement?.trial_ends_at || null,
+    entitlementStatus: entitlement?.status || "",
+    entitlementPlan: entitlement?.plan || "",
+    accessTier: entitlementAccessTier(entitlement),
+    premiumInsights: entitlementHasPremiumInsights(entitlement),
+    createdAt: profile.created_at || workspace?.created_at || credential?.created_at || new Date().toISOString(),
+    updatedAt: workspace?.updated_at || credential?.updated_at || profile.updated_at || profile.created_at || new Date().toISOString(),
+  };
+}
+
+async function readSharedUserByProfile(profile) {
+  if (!profile) return null;
+  const [workspaces, credentials, entitlement] = await Promise.all([
+    supabaseSelect("workspaces", { filters: { user_id: profile.id }, limit: 1 }),
+    supabaseSelect("dashboard_credentials", { filters: { user_id: profile.id }, limit: 1 }),
+    readEntitlementByEmail(profile.email || ""),
+  ]);
+  return mergeSharedUser(profile, workspaces[0], credentials[0], entitlement);
+}
+
+async function readSharedProfileByEmail(email) {
+  const rows = await supabaseSelect("profiles", {
+    filters: { email: cleanText(email || "").toLowerCase() },
+    limit: 1,
+  });
+  return rows[0] || null;
+}
+
+async function readSharedUserByEmail(email) {
+  return readSharedUserByProfile(await readSharedProfileByEmail(email));
+}
+
+async function readSharedUserById(userId) {
+  const rows = await supabaseSelect("profiles", {
+    filters: { id: cleanText(userId || "") },
+    limit: 1,
+  });
+  return readSharedUserByProfile(rows[0] || null);
+}
+
+async function readScans(userId = "") {
+  if (USE_SHARED_SUPABASE) {
+    if (!userId) return [];
+    const rows = await supabaseSelect("dashboard_scans", {
+      filters: { user_id: userId },
+      order: "created_at.asc",
+    });
+    return rows.map((row) => row.data).filter(Boolean);
+  }
+  if (USE_SUPABASE) return readCollection("scans");
   if (!existsSync(SCANS_FILE)) return [];
   try {
     return JSON.parse(await readFile(SCANS_FILE, "utf8"));
@@ -1602,12 +1994,59 @@ async function readScans() {
   }
 }
 
+async function appendScanForUser(userId, scan) {
+  if (USE_SHARED_SUPABASE) {
+    await supabaseInsert("dashboard_scans", {
+      id: scan.id || makeId(),
+      user_id: userId,
+      created_at: scan.createdAt || new Date().toISOString(),
+      data: scan,
+    });
+    return;
+  }
+  const scans = await readScans();
+  scans.push(scan);
+  await writeScans(scans.slice(-50));
+}
+
 async function writeScans(scans) {
+  if (USE_SUPABASE) return writeCollection("scans", scans);
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(SCANS_FILE, `${JSON.stringify(scans, null, 2)}\n`, "utf8");
 }
 
+async function readServiceRequests(userId = "") {
+  if (USE_SHARED_SUPABASE) {
+    if (!userId) return [];
+    const rows = await supabaseSelect("service_requests", {
+      filters: { user_id: userId },
+      order: "created_at.desc",
+    });
+    return rows.map((row) => row.data).filter(Boolean);
+  }
+  if (USE_SUPABASE) {
+    const requests = await readCollection("service_requests");
+    return userId ? requests.filter((item) => item.userId === userId) : requests;
+  }
+  if (!existsSync(SERVICE_REQUESTS_FILE)) return [];
+  try {
+    const requests = JSON.parse(await readFile(SERVICE_REQUESTS_FILE, "utf8"));
+    return userId ? requests.filter((item) => item.userId === userId) : requests;
+  } catch {
+    return [];
+  }
+}
+
+async function writeServiceRequests(requests) {
+  if (USE_SHARED_SUPABASE) return requests;
+  if (USE_SUPABASE) return writeCollection("service_requests", requests);
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeFile(SERVICE_REQUESTS_FILE, `${JSON.stringify(requests, null, 2)}\n`, "utf8");
+}
+
 async function readUsers() {
+  if (USE_SHARED_SUPABASE) return [];
+  if (USE_SUPABASE) return readCollection("users");
   if (!existsSync(USERS_FILE)) return [];
   try {
     return JSON.parse(await readFile(USERS_FILE, "utf8"));
@@ -1617,11 +2056,15 @@ async function readUsers() {
 }
 
 async function writeUsers(users) {
+  if (USE_SHARED_SUPABASE) return users;
+  if (USE_SUPABASE) return writeCollection("users", users);
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(USERS_FILE, `${JSON.stringify(users, null, 2)}\n`, "utf8");
 }
 
 async function readSessions() {
+  if (USE_SHARED_SUPABASE) return [];
+  if (USE_SUPABASE) return readCollection("sessions");
   if (!existsSync(SESSIONS_FILE)) return [];
   try {
     return JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
@@ -1631,6 +2074,8 @@ async function readSessions() {
 }
 
 async function writeSessions(sessions) {
+  if (USE_SHARED_SUPABASE) return sessions;
+  if (USE_SUPABASE) return writeCollection("sessions", sessions);
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(SESSIONS_FILE, `${JSON.stringify(sessions, null, 2)}\n`, "utf8");
 }
@@ -1642,6 +2087,11 @@ function publicUser(user) {
     email: user.email,
     businessName: user.businessName,
     website: user.website,
+    trialEndsAt: user.trialEndsAt || null,
+    entitlementStatus: user.entitlementStatus || "",
+    entitlementPlan: user.entitlementPlan || "",
+    accessTier: user.accessTier || "",
+    premiumInsights: Boolean(user.premiumInsights),
     createdAt: user.createdAt,
   };
 }
@@ -1649,9 +2099,11 @@ function publicUser(user) {
 function validateUserPayload(payload) {
   const name = cleanText(payload?.name || "");
   const email = cleanText(payload?.email || "");
+  const password = String(payload?.password || "");
   const businessName = cleanText(payload?.businessName || "");
   if (!name) return "Enter your full name.";
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email address.";
+  if (!password || password.length < 8) return "Enter a password with at least 8 characters.";
   if (!businessName) return "Enter your business name.";
   try {
     normalizeUrl(payload?.website || "");
@@ -1661,10 +2113,8 @@ function validateUserPayload(payload) {
   return "";
 }
 
-async function upsertUser(payload) {
-  const users = await readUsers();
+async function createUser(payload) {
   const email = cleanText(payload.email).toLowerCase();
-  const existingIndex = users.findIndex((user) => user.email.toLowerCase() === email);
   const now = new Date().toISOString();
   let website;
   try {
@@ -1672,20 +2122,56 @@ async function upsertUser(payload) {
   } catch {
     throw new Error("Enter your business website.");
   }
+  await ensureUserHasAccess({ email });
+  if (USE_SHARED_SUPABASE) {
+    const existingProfile = await readSharedProfileByEmail(email);
+    const existingUser = await readSharedUserByProfile(existingProfile);
+    if (existingUser?.passwordHash) {
+      const error = new Error("An account with this email already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+    const userId = existingProfile?.id || existingUser?.id || makeId();
+    await supabaseUpsert("profiles", {
+      id: userId,
+      email,
+      full_name: titleCaseWords(payload.name),
+      created_at: existingProfile?.created_at || existingUser?.createdAt || now,
+      updated_at: now,
+    }, "email");
+    await supabaseUpsert("workspaces", {
+      user_id: userId,
+      business_name: titleCaseWords(payload.businessName),
+      website,
+      created_at: existingProfile?.created_at || existingUser?.createdAt || now,
+      updated_at: now,
+    }, "user_id");
+    await supabaseUpsert("dashboard_credentials", {
+      user_id: userId,
+      password_hash: hashPassword(String(payload.password || "")),
+      created_at: existingProfile?.created_at || existingUser?.createdAt || now,
+      updated_at: now,
+    }, "user_id");
+    return readSharedUserById(userId);
+  }
+  const users = await readUsers();
+  const existingUser = users.find((user) => user.email.toLowerCase() === email);
+  if (existingUser) {
+    const error = new Error("An account with this email already exists.");
+    error.statusCode = 409;
+    throw error;
+  }
   const record = {
-    id: existingIndex >= 0 ? users[existingIndex].id : makeId(),
-    name: cleanText(payload.name),
+    id: makeId(),
+    name: titleCaseWords(payload.name),
     email,
-    businessName: cleanText(payload.businessName),
+    passwordHash: hashPassword(String(payload.password || "")),
+    businessName: titleCaseWords(payload.businessName),
     website,
-    createdAt: existingIndex >= 0 ? users[existingIndex].createdAt : now,
+    createdAt: now,
     updatedAt: now,
   };
-  if (existingIndex >= 0) {
-    users[existingIndex] = record;
-  } else {
-    users.push(record);
-  }
+  users.push(record);
   await writeUsers(users);
   return record;
 }
@@ -1699,6 +2185,16 @@ function extractAuthToken(request) {
 async function getAuthenticatedUser(request) {
   const token = extractAuthToken(request);
   if (!token) return null;
+  if (USE_SHARED_SUPABASE) {
+    const rows = await supabaseSelect("dashboard_sessions", {
+      filters: { token },
+      limit: 1,
+    });
+    const now = Date.now();
+    const session = rows.find((entry) => Number(entry.expires_at) > now);
+    if (!session) return null;
+    return readSharedUserById(session.user_id);
+  }
   const sessions = await readSessions();
   const now = Date.now();
   const session = sessions.find((entry) => entry.token === token && entry.expiresAt > now);
@@ -1710,81 +2206,314 @@ async function getAuthenticatedUser(request) {
 async function createSession(userId) {
   const token = crypto.randomBytes(32).toString("hex");
   const now = Date.now();
+  if (USE_SHARED_SUPABASE) {
+    await supabaseInsert("dashboard_sessions", {
+      token,
+      user_id: userId,
+      created_at: now,
+      expires_at: now + SESSION_TTL_MS,
+    });
+    return token;
+  }
   const sessions = (await readSessions()).filter((entry) => entry.expiresAt > now);
   sessions.push({ token, userId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
   await writeSessions(sessions);
   return token;
 }
 
-async function readHandoffs() {
-  if (!existsSync(HANDOFFS_FILE)) return [];
-  try {
-    return JSON.parse(await readFile(HANDOFFS_FILE, "utf8"));
-  } catch {
-    return [];
-  }
-}
-
-async function writeHandoffs(handoffs) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(HANDOFFS_FILE, `${JSON.stringify(handoffs, null, 2)}\n`, "utf8");
-}
-
-async function recordDeveloperHandoff(payload, user) {
+async function createPremiumServiceRequest(user, payload) {
+  await ensurePremiumAccess(user);
   const scanId = cleanText(payload?.scanId || "");
-  const businessName = cleanText(payload?.businessName || "");
-  const website = cleanText(payload?.website || "");
+  const summary = cleanText(payload?.summary || "");
   const actions = Array.isArray(payload?.actions) ? payload.actions.slice(0, 8) : [];
-  if (!scanId || !businessName || !website) {
-    throw new Error("Scan details are required to send insights.");
-  }
-  if (!actions.length) {
-    throw new Error("No action items were included in the handoff.");
-  }
-
-  const handoff = {
+  const requestRecord = {
     id: makeId(),
+    userId: user.id,
     createdAt: new Date().toISOString(),
+    status: "requested",
+    businessName: cleanText(payload?.businessName || user.businessName || ""),
+    website: cleanText(payload?.website || user.website || ""),
+    entitlementPlan: cleanText(user.entitlementPlan || ""),
     scanId,
-    businessName,
-    website,
-    location: cleanText(payload?.location || ""),
-    visibilityScore: payload?.visibilityScore ?? null,
-    mentionRate: payload?.mentionRate ?? null,
-    recipientEmail: DEVELOPER_EMAIL,
-    requestedBy: user
-      ? {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-        }
-      : null,
+    summary,
     actions: actions.map((action) => ({
       title: cleanText(action?.title || ""),
       impact: cleanText(action?.impact || ""),
       reason: cleanText(action?.reason || ""),
       evidence: cleanText(action?.evidence || ""),
-      solution: cleanText(action?.solution || ""),
-      developerTasks: Array.isArray(action?.developerTasks)
-        ? action.developerTasks.map((task) => cleanText(task)).filter(Boolean).slice(0, 4)
-        : [],
+      tasks: Array.isArray(action?.tasks) ? action.tasks.map((task) => cleanText(task)).filter(Boolean).slice(0, 4) : [],
     })),
+    requestedBy: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    },
   };
+  requestRecord.delivery = await sendPremiumRequestAlert(requestRecord);
 
-  const handoffs = await readHandoffs();
-  handoffs.push(handoff);
-  await writeHandoffs(handoffs.slice(-200));
-  console.log(`Developer handoff queued for ${DEVELOPER_EMAIL}: ${businessName} (${handoff.id})`);
-  return handoff;
+  if (USE_SHARED_SUPABASE) {
+    await supabaseInsert("service_requests", {
+      id: requestRecord.id,
+      user_id: user.id,
+      created_at: requestRecord.createdAt,
+      status: requestRecord.status,
+      data: requestRecord,
+    });
+  } else {
+    const requests = await readServiceRequests();
+    requests.push(requestRecord);
+    await writeServiceRequests(requests.slice(-300));
+  }
+
+  return requestRecord;
+}
+
+async function ensurePremiumAccess(userLike) {
+  if (!USE_SHARED_SUPABASE) return true;
+  const entitlement = await ensureUserHasAccess(userLike);
+  if (!entitlementHasPremiumInsights(entitlement)) {
+    const error = new Error("Premium actionable insights are only available on the premium Gleo tier.");
+    error.statusCode = 403;
+    throw error;
+  }
+  return entitlement;
 }
 
 async function deleteSession(token) {
+  if (USE_SHARED_SUPABASE) {
+    await supabaseDelete("dashboard_sessions", { token });
+    return;
+  }
   const sessions = await readSessions();
   await writeSessions(sessions.filter((entry) => entry.token !== token));
 }
 
+async function sendPremiumRequestAlert(requestRecord) {
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER || !TWILIO_TO_NUMBER) {
+    return { status: "saved_only", provider: "supabase_queue" };
+  }
+
+  const actionCount = requestRecord.actions.length;
+  const body = [
+    "New Gleo premium request",
+    requestRecord.businessName || "Unknown business",
+    requestRecord.website || "",
+    `${actionCount} insight${actionCount === 1 ? "" : "s"} ready`,
+    requestRecord.requestedBy?.email || "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  const params = new URLSearchParams({
+    To: TWILIO_TO_NUMBER,
+    From: TWILIO_FROM_NUMBER,
+    Body: body,
+  });
+  const token = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${token}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      status: "failed",
+      provider: "twilio",
+      error: data?.message || `${response.status} ${response.statusText}`,
+    };
+  }
+  return {
+    status: "sent",
+    provider: "twilio",
+    sid: data?.sid || "",
+  };
+}
+
+async function getAdminOverview() {
+  if (!ADMIN_DASHBOARD_ENABLED) {
+    return {
+      mode: SUPABASE_PROJECT_MODE,
+      sharedMode: USE_SHARED_SUPABASE,
+      message: "Admin dashboard is disabled.",
+      stats: {},
+      users: [],
+      serviceRequests: [],
+    };
+  }
+  if (!USE_SHARED_SUPABASE) {
+    return {
+      mode: SUPABASE_PROJECT_MODE || "legacy",
+      sharedMode: false,
+      message: "Admin view is designed for the shared Supabase setup.",
+      stats: {},
+      users: [],
+      serviceRequests: [],
+    };
+  }
+
+  const [profiles, entitlements, workspaces, scans, serviceRequests] = await Promise.all([
+    supabaseSelectSafe("profiles", { order: "created_at.desc", limit: 200 }),
+    supabaseSelectSafe("entitlements", { order: "updated_at.desc", limit: 200 }),
+    supabaseSelectSafe("workspaces", { order: "updated_at.desc", limit: 200 }),
+    supabaseSelectSafe("dashboard_scans", { order: "created_at.desc", limit: 400 }),
+    supabaseSelectSafe("service_requests", { order: "created_at.desc", limit: 200 }),
+  ]);
+
+  const entitlementsByEmail = new Map(entitlements.map((item) => [String(item.email || "").toLowerCase(), item]));
+  const workspacesByUserId = new Map(workspaces.map((item) => [item.user_id, item]));
+  const scansByUserId = new Map();
+  const latestScanByUserId = new Map();
+
+  for (const row of scans) {
+    const count = scansByUserId.get(row.user_id) || 0;
+    scansByUserId.set(row.user_id, count + 1);
+    if (!latestScanByUserId.has(row.user_id)) latestScanByUserId.set(row.user_id, row);
+  }
+
+  const users = profiles.map((profile) => {
+    const entitlement = entitlementsByEmail.get(String(profile.email || "").toLowerCase()) || null;
+    const workspace = workspacesByUserId.get(profile.id) || null;
+    const latestScan = latestScanByUserId.get(profile.id) || null;
+    const latestScanData = latestScan?.data || null;
+    return {
+      id: profile.id,
+      name: profile.full_name || "",
+      email: profile.email || "",
+      status: entitlement?.status || "missing",
+      plan: entitlement?.plan || "",
+      trialEndsAt: entitlement?.trial_ends_at || null,
+      accessTier: entitlementAccessTier(entitlement),
+      premiumInsights: entitlementHasPremiumInsights(entitlement),
+      businessName: workspace?.business_name || "",
+      website: workspace?.website || "",
+      createdAt: profile.created_at || "",
+      updatedAt: workspace?.updated_at || profile.updated_at || "",
+      scanCount: scansByUserId.get(profile.id) || 0,
+      latestVisibilityScore: latestScanData?.metrics?.visibilityScore ?? null,
+      latestMentionRate: latestScanData?.metrics?.mentionRate ?? null,
+      latestScanAt: latestScan?.created_at || "",
+    };
+  });
+
+  const requestRows = serviceRequests.map((row) => {
+    const data = row.data || {};
+    return {
+      id: row.id,
+      userId: row.user_id,
+      createdAt: row.created_at || data.createdAt || "",
+      status: row.status || data.status || "requested",
+      businessName: data.businessName || "",
+      website: data.website || "",
+      requestedBy: data.requestedBy || null,
+      actionCount: Array.isArray(data.actions) ? data.actions.length : 0,
+      deliveryStatus: data.delivery?.status || "saved_only",
+      deliveryProvider: data.delivery?.provider || "supabase_queue",
+      summary: data.summary || "",
+    };
+  });
+
+  const stats = {
+    totalUsers: users.length,
+    activeUsers: users.filter((user) => ["standard", "premium", "included_month"].includes(user.accessTier)).length,
+    premiumUsers: users.filter((user) => user.premiumInsights).length,
+    totalScans: scans.length,
+    pendingServiceRequests: requestRows.filter((row) => row.status === "requested").length,
+    totalServiceRequests: requestRows.length,
+  };
+
+  return {
+    mode: SUPABASE_PROJECT_MODE,
+    sharedMode: true,
+    stats,
+    users,
+    serviceRequests: requestRows,
+  };
+}
+
+function getAuthenticatedAdmin(request) {
+  if (!ADMIN_DASHBOARD_ENABLED) return null;
+  const cookies = parseCookies(request);
+  const token = cookies[ADMIN_SESSION_COOKIE] || "";
+  const session = verifyAdminSessionToken(token);
+  if (!session) return null;
+  return { email: session.email };
+}
+
+function normalizeAdminDashboardPath(value) {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  return cleaned ? `/${cleaned}` : "";
+}
+
+function isBlockedPublicAdminPath(pathname) {
+  return ["/admin", "/admin/", "/admin.html", "/admin/index.html"].includes(String(pathname || "").toLowerCase());
+}
+
+function parseCookies(request) {
+  const raw = String(request.headers.cookie || "");
+  return raw.split(";").reduce((map, part) => {
+    const [name, ...rest] = part.split("=");
+    const key = String(name || "").trim();
+    if (!key) return map;
+    map[key] = decodeURIComponent(rest.join("=").trim());
+    return map;
+  }, {});
+}
+
+function createAdminSessionCookie(email) {
+  const token = signAdminSessionToken({
+    email,
+    exp: Date.now() + ADMIN_SESSION_TTL_MS,
+  });
+  return `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(
+    ADMIN_SESSION_TTL_MS / 1000,
+  )}`;
+}
+
+function clearAdminSessionCookie() {
+  return `${ADMIN_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
+function signAdminSessionToken(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(body).digest("base64url");
+  return `${body}.${signature}`;
+}
+
+function verifyAdminSessionToken(token) {
+  if (!token || !token.includes(".")) return null;
+  const [body, signature] = token.split(".");
+  if (!body || !signature) return null;
+  const expected = crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(body).digest("base64url");
+  if (!safeEqualString(signature, expected)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    if (!payload?.email || payload.email !== ADMIN_EMAIL) return null;
+    if (!payload?.exp || Number(payload.exp) < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function safeEqualString(left, right) {
+  const a = Buffer.from(String(left || ""));
+  const b = Buffer.from(String(right || ""));
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 async function serveStatic(pathname, response) {
-  const safePath = pathname === "/" ? "/index.html" : pathname;
+  const normalizedPath = ADMIN_DASHBOARD_ENABLED && (pathname === ADMIN_DASHBOARD_PATH || pathname === `${ADMIN_DASHBOARD_PATH}/`)
+    ? "/admin.html"
+    : pathname;
+  const safePath = normalizedPath === "/" ? "/index.html" : normalizedPath;
   const filePath = path.normalize(path.join(__dirname, safePath));
   if (!filePath.startsWith(__dirname)) return sendText(response, "Not found", 404);
 
@@ -1800,8 +2529,11 @@ async function serveStatic(pathname, response) {
   }
 }
 
-function sendJson(response, body, status = 200) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+function sendJson(response, body, status = 200, extraHeaders = {}) {
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...extraHeaders,
+  });
   response.end(JSON.stringify(body));
 }
 
@@ -1849,6 +2581,32 @@ function decodeEntities(text) {
 
 function cleanText(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, passwordHash) {
+  if (!passwordHash || !passwordHash.includes(":")) return false;
+  const [salt, expectedHash] = passwordHash.split(":");
+  if (!salt || !expectedHash) return false;
+  const actualHash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return crypto.timingSafeEqual(Buffer.from(actualHash, "hex"), Buffer.from(expectedHash, "hex"));
+}
+
+function titleCaseWords(text) {
+  return cleanText(text)
+    .split(" ")
+    .map((word) =>
+      word
+        .split("-")
+        .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : part))
+        .join("-"),
+    )
+    .join(" ");
 }
 
 function normalized(text) {
