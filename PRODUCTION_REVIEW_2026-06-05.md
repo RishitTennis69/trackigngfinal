@@ -315,6 +315,59 @@ This pass skipped Free Audit interaction and focused on the live dashboard auth 
 The most suspicious layer was the custom HTTPS Supabase helper in the dashboard backend. I replaced that helper locally with the normal Node `fetch` path plus a timeout, which should behave more like the successful browser traffic already reaching Railway.
 
 This fix is local in the repo right now and still needs deployment before I can rerun the production pass against it.
+
+## Final Production Auth Pass
+
+After the Railway redeploy caught up, the dashboard production auth flow behaved much more cleanly.
+
+### What passed
+
+1. Active paid signup
+   - returned `200`
+
+2. Existing-user login
+   - returned `200`
+
+3. Wrong-password sign-in
+   - returned `401`
+   - message: `Incorrect password.`
+
+4. Trial signup and trial login
+   - both returned `200`
+
+5. Expired included-month signup
+   - returned `403`
+   - message: `Your included month of tracking has ended. Choose a monthly plan to keep monitoring your AI visibility.`
+
+6. Unpaid signup
+   - returned `403`
+   - message: `No paid Gleo access was found for this email yet. Complete payment on the Gleo landing page first.`
+
+7. Duplicate signup
+   - returned `409`
+   - message: `An account with this email already exists.`
+
+8. Admin auth and data
+   - admin login returned `200`
+   - admin overview returned `200`
+
+9. First real scan after signup
+   - scan request returned `200`
+   - latest scan endpoint returned a saved scan afterward
+   - scans list returned `1`
+   - completed answers: `18`
+   - visibility score: `62`
+
+### What this means now
+
+- The production dashboard backend is no longer masking normal auth/product rules as `502` errors.
+- The paid-access gate is behaving correctly.
+- The first real production scan path is working again.
+
+### Still not fully proven
+
+- Browser-level refresh during the first waiting state on the production dashboard still deserves one true visual pass.
+- The landing Free Audit interaction itself was not the focus of this last auth/scan pass, so that remains a separate browser test.
 - `/checkout` returns `200`
 - `/welcome` returns `200`
 - the landing production bundle does **not** contain:
