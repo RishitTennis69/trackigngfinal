@@ -1,5 +1,4 @@
 import http from "node:http";
-import https from "node:https";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -1752,46 +1751,32 @@ function supabaseHeaders() {
 }
 
 async function supabaseRequest(pathname, { method = "GET", headers = {}, body = "" } = {}) {
-  const url = new URL(`${SUPABASE_URL}${pathname}`);
+  const url = `${SUPABASE_URL}${pathname}`;
   const requestBody = typeof body === "string" ? body : body ? JSON.stringify(body) : "";
   const requestHeaders = {
     ...headers,
   };
-  if (requestBody && requestHeaders["Content-Length"] === undefined) {
-    requestHeaders["Content-Length"] = Buffer.byteLength(requestBody);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: requestHeaders,
+      body: requestBody || undefined,
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      throw new Error("Supabase request timed out.");
+    }
+    throw error;
   }
 
-  return new Promise((resolve, reject) => {
-    const request = https.request(
-      url,
-      {
-        method,
-        headers: requestHeaders,
-        timeout: 30000,
-      },
-      (response) => {
-        let chunks = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk) => {
-          chunks += chunk;
-        });
-        response.on("end", () => {
-          resolve({
-            ok: response.statusCode >= 200 && response.statusCode < 300,
-            status: response.statusCode || 500,
-            text: chunks,
-          });
-        });
-      },
-    );
-
-    request.on("timeout", () => {
-      request.destroy(new Error("Supabase request timed out."));
-    });
-    request.on("error", reject);
-    if (requestBody) request.write(requestBody);
-    request.end();
-  });
+  return {
+    ok: response.ok,
+    status: response.status || 500,
+    text: await response.text(),
+  };
 }
 
 async function supabaseSelect(table, { filters = {}, limit, order, select = "*" } = {}) {
