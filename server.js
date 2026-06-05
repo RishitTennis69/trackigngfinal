@@ -52,13 +52,7 @@ const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "";
 const TWILIO_TO_NUMBER = process.env.TWILIO_TO_NUMBER || "";
 const ADMIN_DASHBOARD_PATH = normalizeAdminDashboardPath(process.env.ADMIN_DASHBOARD_PATH || "");
 const ADMIN_EMAIL = cleanText(process.env.ADMIN_EMAIL || process.env.RESEND_DEVELOPER_EMAIL || "").toLowerCase();
-const ADMIN_PASSWORD_HASH =
-  process.env.ADMIN_PASSWORD_HASH ||
-  (process.env.ADMIN_PASSWORD
-    ? hashPassword(process.env.ADMIN_PASSWORD)
-    : process.env.ADMIN_DASHBOARD_KEY
-      ? hashPassword(process.env.ADMIN_DASHBOARD_KEY)
-      : "");
+const ADMIN_PASSWORD_HASH = resolveAdminPasswordHash();
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_DASHBOARD_KEY || "";
 const ADMIN_DASHBOARD_ENABLED = Boolean(ADMIN_DASHBOARD_PATH && ADMIN_EMAIL && ADMIN_PASSWORD_HASH && ADMIN_SESSION_SECRET);
 const ADMIN_SESSION_COOKIE = "gleo_admin_session";
@@ -2632,12 +2626,27 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
+function resolveAdminPasswordHash() {
+  const hashed = cleanText(process.env.ADMIN_PASSWORD_HASH || "");
+  if (hashed && hashed.includes(":")) return hashed;
+  if (process.env.ADMIN_PASSWORD) return hashPassword(process.env.ADMIN_PASSWORD);
+  if (process.env.ADMIN_DASHBOARD_KEY) return hashPassword(process.env.ADMIN_DASHBOARD_KEY);
+  return "";
+}
+
 function verifyPassword(password, passwordHash) {
   if (!passwordHash || !passwordHash.includes(":")) return false;
   const [salt, expectedHash] = passwordHash.split(":");
   if (!salt || !expectedHash) return false;
-  const actualHash = crypto.scryptSync(password, salt, 64).toString("hex");
-  return crypto.timingSafeEqual(Buffer.from(actualHash, "hex"), Buffer.from(expectedHash, "hex"));
+  try {
+    const actualHash = crypto.scryptSync(password, salt, 64).toString("hex");
+    const actualBuffer = Buffer.from(actualHash, "hex");
+    const expectedBuffer = Buffer.from(expectedHash, "hex");
+    if (!actualBuffer.length || actualBuffer.length !== expectedBuffer.length) return false;
+    return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+  } catch {
+    return false;
+  }
 }
 
 function titleCaseWords(text) {
