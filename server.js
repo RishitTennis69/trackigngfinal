@@ -1712,9 +1712,13 @@ function inferNameFromUrl(url) {
 }
 
 async function readJsonBody(request) {
-  const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
-  const raw = Buffer.concat(chunks).toString("utf8");
+  const raw = await new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    request.on("error", reject);
+    request.on("aborted", () => reject(new Error("Request body was aborted.")));
+  });
   if (!raw) return {};
   return JSON.parse(raw);
 }
