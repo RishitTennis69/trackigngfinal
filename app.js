@@ -19,8 +19,14 @@ const state = {
   user: null,
   useMockData: false,
   autoScanRequestedFor: "",
+  firstScanPollTimer: null,
+  firstScanPollAttempts: 0,
   premiumRequestPending: false,
 };
+
+const FIRST_SCAN_PENDING_STORAGE_KEY = "gleoFirstScanPendingUserId";
+const FIRST_SCAN_POLL_INTERVAL_MS = 5000;
+const FIRST_SCAN_POLL_MAX_ATTEMPTS = 36;
 
 const els = {
   landingPage: document.querySelector("#landingPage"),
@@ -147,6 +153,8 @@ async function init() {
 async function restoreUserSession() {
   const token = localStorage.getItem("gleoAuthToken");
   if (!token) {
+    setPendingFirstScanUserId("");
+    stopFirstScanPolling();
     try {
       const raw = localStorage.getItem("gleoUser");
       state.user = raw ? JSON.parse(raw) : null;
@@ -166,6 +174,8 @@ async function restoreUserSession() {
     localStorage.removeItem("gleoAuthToken");
     localStorage.removeItem("gleoUser");
     localStorage.removeItem("gleoLoggedIn");
+    setPendingFirstScanUserId("");
+    stopFirstScanPolling();
     state.user = null;
   }
   renderUserProfile();
@@ -342,6 +352,8 @@ async function loadUserScans(user) {
   );
 
   if (serverScans.length) {
+    stopFirstScanPolling();
+    setPendingFirstScanUserId("");
     state.useMockData = false;
     state.scans = serverScans;
     state.currentScan = serverScans.at(-1) || null;
@@ -393,6 +405,80 @@ function formatAccessDate(value) {
   } catch {
     return "";
   }
+}
+
+function getPendingFirstScanUserId() {
+  return localStorage.getItem(FIRST_SCAN_PENDING_STORAGE_KEY) || "";
+}
+
+function setPendingFirstScanUserId(userId) {
+  if (!userId) {
+    localStorage.removeItem(FIRST_SCAN_PENDING_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(FIRST_SCAN_PENDING_STORAGE_KEY, userId);
+}
+
+function stopFirstScanPolling() {
+  if (state.firstScanPollTimer) {
+    window.clearTimeout(state.firstScanPollTimer);
+    state.firstScanPollTimer = null;
+  }
+  state.firstScanPollAttempts = 0;
+}
+
+async function pollLatestFirstScan({ resetAttempts = false } = {}) {
+  if (!state.user) return null;
+  if (resetAttempts) state.firstScanPollAttempts = 0;
+
+  if (state.firstScanPollAttempts >= FIRST_SCAN_POLL_MAX_ATTEMPTS) {
+    stopFirstScanPolling();
+    state.autoScanRequestedFor = "";
+    setPendingFirstScanUserId("");
+    if (!state.currentScan) {
+      showTrackingLaunchPage();
+      setStatus("The first scan is taking longer than expected. You can open the dashboard and retry when ready.", "working");
+    }
+    return null;
+  }
+
+  state.firstScanPollAttempts += 1;
+
+  try {
+    const latest = await fetchJson("/api/scans/latest");
+    const latestScan = latest.scan || null;
+    if (latestScan?.metrics?.completedAnswers) {
+      stopFirstScanPolling();
+      state.currentScan = latestScan;
+      if (!state.scans.some((scan) => scan.id === latestScan.id)) {
+        state.scans.push(latestScan);
+      }
+      state.useMockData = false;
+      state.autoScanRequestedFor = "";
+      setPendingFirstScanUserId("");
+      renderAll();
+      if (!els.trackingLaunchPage?.classList.contains("hidden")) {
+        showTrackingLaunchPage();
+      }
+      setStatus(`Scan complete. ${latestScan.metrics.completedAnswers} AI answers analyzed.`, "ready");
+      return latestScan;
+    }
+  } catch {
+    // Keep polling quietly while the launch page remains visible.
+  }
+
+  state.firstScanPollTimer = window.setTimeout(() => {
+    void pollLatestFirstScan();
+  }, FIRST_SCAN_POLL_INTERVAL_MS);
+  return null;
+}
+
+function startFirstScanPolling() {
+  if (!state.user) return;
+  stopFirstScanPolling();
+  state.autoScanRequestedFor = state.user.id;
+  setPendingFirstScanUserId(state.user.id);
+  void pollLatestFirstScan({ resetAttempts: true });
 }
 
 function renderUserProfile() {
@@ -820,6 +906,8 @@ function bindLanding() {
     localStorage.removeItem("gleoAuthToken");
     localStorage.removeItem("gleoUser");
     localStorage.removeItem("gleoLoggedIn");
+    setPendingFirstScanUserId("");
+    stopFirstScanPolling();
     state.user = null;
     state.useMockData = false;
     state.currentScan = null;
@@ -1022,6 +1110,11 @@ async function maybeStartAutoScan({ background = false } = {}) {
   if (!state.user || !state.config || state.isScanning || state.currentScan || state.setupForcedOpen) return { started: false };
   if (state.autoScanRequestedFor === state.user.id) return { started: false };
 
+  if (getPendingFirstScanUserId() === state.user.id) {
+    startFirstScanPolling();
+    return { started: true, background: true, resumed: true };
+  }
+
   const platforms = getConfiguredPlatformKeys();
   renderSetupVisibility();
 
@@ -1048,6 +1141,10 @@ async function maybeStartAutoScan({ background = false } = {}) {
 
 async function runScanRequest(payload, { auto = false } = {}) {
   setScanning(true, auto);
+  if (auto && state.user) {
+    state.autoScanRequestedFor = state.user.id;
+    setPendingFirstScanUserId(state.user.id);
+  }
 
   try {
     const response = await fetch("/api/scan", {
@@ -1062,6 +1159,9 @@ async function runScanRequest(payload, { auto = false } = {}) {
     state.scans.push(data.scan);
     state.useMockData = false;
     state.setupForcedOpen = false;
+    stopFirstScanPolling();
+    state.autoScanRequestedFor = "";
+    setPendingFirstScanUserId("");
     renderAll();
     if (!els.trackingLaunchPage?.classList.contains("hidden")) {
       showTrackingLaunchPage();
@@ -1077,6 +1177,11 @@ async function runScanRequest(payload, { auto = false } = {}) {
     if (auto && state.user) state.autoScanRequestedFor = "";
     setStatus(error.message || "The scan could not complete.", "error");
     if (!auto) showToast(error.message || "The scan could not complete.");
+    if (auto && state.user) {
+      startFirstScanPolling();
+    } else {
+      setPendingFirstScanUserId("");
+    }
     return { ok: false, error };
   } finally {
     setScanning(false, auto);
@@ -1161,7 +1266,12 @@ async function loadInitialData() {
 
   renderConfig();
   renderAll();
-  void maybeStartAutoScan({ background: true });
+  const pendingFirstScanUserId = getPendingFirstScanUserId();
+  if (pendingFirstScanUserId && pendingFirstScanUserId === state.user?.id && !state.currentScan?.metrics?.completedAnswers) {
+    startFirstScanPolling();
+  } else {
+    void maybeStartAutoScan({ background: true });
+  }
 
   if (state.currentScan?.metrics?.completedAnswers) {
     setStatus(buildDashboardStatusMessage(), "ready");

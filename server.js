@@ -17,6 +17,10 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 loadDotEnv();
 
 const PORT = Number(process.env.PORT || 4173);
+const IS_PRODUCTION = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+const HOST = cleanText(process.env.HOST || "") || (IS_PRODUCTION ? "0.0.0.0" : "127.0.0.1");
+const APP_BASE_URL = cleanText(process.env.APP_BASE_URL || "");
+const OPENROUTER_HTTP_REFERER = cleanText(process.env.OPENROUTER_HTTP_REFERER || APP_BASE_URL || "");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -236,8 +240,9 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Gleo GEO Insights running at http://127.0.0.1:${PORT}/`);
+server.listen(PORT, HOST, () => {
+  const displayUrl = APP_BASE_URL || `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}/`;
+  console.log(`Gleo GEO Insights running at ${displayUrl}`);
 });
 
 async function runScan(payload, previousScans = []) {
@@ -783,7 +788,7 @@ async function askOpenRouter(context) {
 
   const data = await postJson("https://openrouter.ai/api/v1/chat/completions", body, {
     Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-    "HTTP-Referer": "http://127.0.0.1:4174",
+    ...(OPENROUTER_HTTP_REFERER ? { "HTTP-Referer": OPENROUTER_HTTP_REFERER } : {}),
     "X-Title": "Gleo GEO Insights",
   });
 
