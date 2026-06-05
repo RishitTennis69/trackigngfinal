@@ -27,6 +27,7 @@ const state = {
 const FIRST_SCAN_PENDING_STORAGE_KEY = "gleoFirstScanPendingUserId";
 const FIRST_SCAN_POLL_INTERVAL_MS = 5000;
 const FIRST_SCAN_POLL_MAX_ATTEMPTS = 36;
+const API_BASE_URL = resolveApiBaseUrl();
 
 const els = {
   landingPage: document.querySelector("#landingPage"),
@@ -148,6 +149,26 @@ async function init() {
   bindPremiumInsights();
   bindPasswordToggles();
   await loadInitialData();
+}
+
+function resolveApiBaseUrl() {
+  const configured =
+    globalThis.__API_BASE_URL__ ||
+    document.documentElement?.dataset.apiBaseUrl ||
+    document.body?.dataset.apiBaseUrl ||
+    "";
+  if (configured) return String(configured).replace(/\/$/, "");
+
+  const host = window.location.hostname;
+  if (host === "trackigngfinal.vercel.app") {
+    return "https://trackigngfinal-production.up.railway.app";
+  }
+  return "";
+}
+
+function apiUrl(pathname) {
+  if (!API_BASE_URL) return pathname;
+  return `${API_BASE_URL}${pathname}`;
 }
 
 async function restoreUserSession() {
@@ -1147,7 +1168,7 @@ async function runScanRequest(payload, { auto = false } = {}) {
   }
 
   try {
-    const response = await fetch("/api/scan", {
+    const response = await fetch(apiUrl("/api/scan"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -2759,7 +2780,7 @@ async function fetchJson(url, options = {}) {
   const token = localStorage.getItem("gleoAuthToken");
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     ...options,
     headers,
   });
