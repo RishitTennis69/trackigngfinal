@@ -21,6 +21,16 @@ const IS_PRODUCTION = String(process.env.NODE_ENV || "").trim().toLowerCase() ==
 const HOST = cleanText(process.env.HOST || "") || (IS_PRODUCTION ? "0.0.0.0" : "127.0.0.1");
 const APP_BASE_URL = cleanText(process.env.APP_BASE_URL || "");
 const OPENROUTER_HTTP_REFERER = cleanText(process.env.OPENROUTER_HTTP_REFERER || APP_BASE_URL || "");
+const ALLOWED_ORIGINS = new Set(
+  [
+    APP_BASE_URL,
+    "https://trackigngfinal.vercel.app",
+    "http://127.0.0.1:4173",
+    "http://localhost:4173",
+  ]
+    .map((value) => cleanText(value || "").replace(/\/$/, ""))
+    .filter(Boolean),
+);
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -84,14 +94,21 @@ const MIME_TYPES = {
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
+    const corsHeaders = buildCorsHeaders(request);
+
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, corsHeaders);
+      response.end();
+      return;
+    }
 
     if (url.pathname === "/api/auth/signup" && request.method === "POST") {
       const payload = await readJsonBody(request);
       const validationError = validateUserPayload(payload);
-      if (validationError) return sendJson(response, { error: validationError }, 400);
+      if (validationError) return sendJson(response, { error: validationError }, 400, corsHeaders);
       const user = await createUser(payload);
       const token = await createSession(user.id);
-      return sendJson(response, { user: publicUser(user), token });
+      return sendJson(response, { user: publicUser(user), token }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/auth/login" && request.method === "POST") {
@@ -99,77 +116,77 @@ const server = http.createServer(async (request, response) => {
       const name = cleanText(payload?.name || "");
       const email = cleanText(payload?.email || "").toLowerCase();
       const password = String(payload?.password || "");
-      if (!name) return sendJson(response, { error: "Enter your full name." }, 400);
+      if (!name) return sendJson(response, { error: "Enter your full name." }, 400, corsHeaders);
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return sendJson(response, { error: "Enter a valid email address." }, 400);
+        return sendJson(response, { error: "Enter a valid email address." }, 400, corsHeaders);
       }
-      if (!password) return sendJson(response, { error: "Enter your password." }, 400);
+      if (!password) return sendJson(response, { error: "Enter your password." }, 400, corsHeaders);
       await ensureUserHasAccess({ email });
       const user = USE_SHARED_SUPABASE ? await readSharedUserByEmail(email) : (await readUsers()).find((entry) => entry.email.toLowerCase() === email);
-      if (!user) return sendJson(response, { error: "No account found for that email. Sign up first." }, 404);
+      if (!user) return sendJson(response, { error: "No account found for that email. Sign up first." }, 404, corsHeaders);
       if (normalized(user.name) !== normalized(name)) {
-        return sendJson(response, { error: "The name does not match this account." }, 401);
+        return sendJson(response, { error: "The name does not match this account." }, 401, corsHeaders);
       }
       if (!verifyPassword(password, user.passwordHash || "")) {
-        return sendJson(response, { error: "Incorrect password." }, 401);
+        return sendJson(response, { error: "Incorrect password." }, 401, corsHeaders);
       }
       const token = await createSession(user.id);
-      return sendJson(response, { user: publicUser(user), token });
+      return sendJson(response, { user: publicUser(user), token }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/auth/me" && request.method === "GET") {
       const user = await getAuthenticatedUser(request);
-      if (!user) return sendJson(response, { error: "Not authenticated." }, 401);
+      if (!user) return sendJson(response, { error: "Not authenticated." }, 401, corsHeaders);
       await ensureUserHasAccess(user);
-      return sendJson(response, { user: publicUser(user) });
+      return sendJson(response, { user: publicUser(user) }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/auth/logout" && request.method === "POST") {
       const token = extractAuthToken(request);
       if (token) await deleteSession(token);
-      return sendJson(response, { ok: true });
+      return sendJson(response, { ok: true }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/config" && request.method === "GET") {
-      return sendJson(response, await getConfig());
+      return sendJson(response, await getConfig(), 200, corsHeaders);
     }
 
     if (url.pathname === "/api/scans" && request.method === "GET") {
       const user = await getAuthenticatedUser(request);
-      if (!user) return sendJson(response, { scans: [] });
+      if (!user) return sendJson(response, { scans: [] }, 200, corsHeaders);
       await ensureUserHasAccess(user);
-      return sendJson(response, { scans: await readScans(user.id) });
+      return sendJson(response, { scans: await readScans(user.id) }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/scans/latest" && request.method === "GET") {
       const user = await getAuthenticatedUser(request);
-      if (!user) return sendJson(response, { scan: null });
+      if (!user) return sendJson(response, { scan: null }, 200, corsHeaders);
       await ensureUserHasAccess(user);
       const scans = await readScans(user.id);
-      return sendJson(response, { scan: scans.at(-1) || null });
+      return sendJson(response, { scan: scans.at(-1) || null }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/scan" && request.method === "POST") {
       const user = await getAuthenticatedUser(request);
-      if (!user) return sendJson(response, { error: "Sign in before running a scan." }, 401);
+      if (!user) return sendJson(response, { error: "Sign in before running a scan." }, 401, corsHeaders);
       await ensureUserHasAccess(user);
       const payload = await readJsonBody(request);
       const scans = await readScans(user.id);
       const scan = await runScan(payload, scans);
       await appendScanForUser(user.id, scan);
-      return sendJson(response, { scan });
+      return sendJson(response, { scan }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/premium-request" && request.method === "POST") {
       const user = await getAuthenticatedUser(request);
-      if (!user) return sendJson(response, { error: "Sign in before requesting premium help." }, 401);
+      if (!user) return sendJson(response, { error: "Sign in before requesting premium help." }, 401, corsHeaders);
       const payload = await readJsonBody(request);
       const requestRecord = await createPremiumServiceRequest(user, payload);
       return sendJson(response, {
         ok: true,
         requestId: requestRecord.id,
         delivery: requestRecord.delivery,
-      });
+      }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/admin/overview" && request.method === "GET") {
@@ -230,13 +247,14 @@ const server = http.createServer(async (request, response) => {
     } else {
       console.error(error);
     }
-    return sendJson(
-      response,
-      {
-        error: error.message || "Something went wrong while running the scan.",
-      },
+      return sendJson(
+        response,
+        {
+          error: error.message || "Something went wrong while running the scan.",
+        },
       error.statusCode || 500,
-    );
+      corsHeaders,
+      );
   }
 });
 
@@ -2542,9 +2560,20 @@ function sendJson(response, body, status = 200, extraHeaders = {}) {
   response.end(JSON.stringify(body));
 }
 
-function sendText(response, body, status = 200) {
-  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+function sendText(response, body, status = 200, extraHeaders = {}) {
+  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", ...extraHeaders });
   response.end(body);
+}
+
+function buildCorsHeaders(request) {
+  const origin = cleanText(request.headers.origin || "").replace(/\/$/, "");
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    Vary: "Origin",
+  };
 }
 
 function loadDotEnv() {
