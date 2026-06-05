@@ -394,6 +394,7 @@ async function crawlSite(startUrl) {
     startUrl,
     pages,
     pageCount: pages.length,
+    cms: inferSiteCms(pages, startUrl),
     keywords,
     vertical,
     services,
@@ -417,6 +418,12 @@ function extractPage(url, html) {
     .map((match) => cleanText(stripTags(match[1])))
     .filter(Boolean)
     .slice(0, 14);
+  const generator = cleanText(
+    decodeEntities(
+      matchFirst(withoutScripts, /<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["'][^>]*>/i) ||
+        matchFirst(withoutScripts, /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']generator["'][^>]*>/i),
+    ),
+  );
 
   const text = cleanText(decodeEntities(stripTags(withoutScripts))).slice(0, 8500);
 
@@ -427,7 +434,67 @@ function extractPage(url, html) {
     headings,
     text,
     wordCount: text.split(/\s+/).filter(Boolean).length,
+    generator,
+    cmsHints: inferCmsHints({ url, html: withoutScripts, generator }),
   };
+}
+
+function inferCmsHints({ url, html, generator }) {
+  const lowerHtml = String(html || "").toLowerCase();
+  const lowerGenerator = String(generator || "").toLowerCase();
+  const lowerUrl = String(url || "").toLowerCase();
+  const hints = [];
+
+  const addHint = (label) => {
+    if (label && !hints.includes(label)) hints.push(label);
+  };
+
+  if (lowerGenerator.includes("wordpress") || /wp-content|wp-includes/.test(lowerHtml)) addHint("WordPress");
+  if (lowerGenerator.includes("shopify") || /cdn\.shopify\.com|shopify-payment-button|shopify-section/.test(lowerHtml)) addHint("Shopify");
+  if (lowerGenerator.includes("webflow") || /cdn\.webflow\.com|data-wf-domain|webflow\.js/.test(lowerHtml)) addHint("Webflow");
+  if (lowerGenerator.includes("wix") || /wixstatic\.com|_wixcssrules|wix-code/.test(lowerHtml)) addHint("Wix");
+  if (lowerGenerator.includes("squarespace") || /static\.squarespace\.com|squarespace-cdn/.test(lowerHtml)) addHint("Squarespace");
+  if (lowerGenerator.includes("hubspot") || /hs-scripts\.com|hubspot/.test(lowerHtml)) addHint("HubSpot");
+  if (lowerGenerator.includes("duda") || /dundle|dudaone|dudamobile/.test(lowerHtml)) addHint("Duda");
+  if (lowerUrl.includes(".myshopify.com")) addHint("Shopify");
+
+  if (!hints.length && generator) {
+    addHint(normalizeCmsName(generator));
+  }
+
+  return hints;
+}
+
+function normalizeCmsName(value) {
+  const label = cleanText(value || "");
+  if (!label) return "";
+  if (/wordpress/i.test(label)) return "WordPress";
+  if (/shopify/i.test(label)) return "Shopify";
+  if (/webflow/i.test(label)) return "Webflow";
+  if (/wix/i.test(label)) return "Wix";
+  if (/squarespace/i.test(label)) return "Squarespace";
+  if (/hubspot/i.test(label)) return "HubSpot";
+  if (/duda/i.test(label)) return "Duda";
+  return label.split(/[;,(]/)[0].trim();
+}
+
+function inferSiteCms(pages, startUrl = "") {
+  const scores = new Map();
+  const addScore = (label, amount = 1) => {
+    if (!label) return;
+    scores.set(label, (scores.get(label) || 0) + amount);
+  };
+
+  for (const page of pages || []) {
+    for (const hint of page.cmsHints || []) addScore(hint, 2);
+    if (page.generator) addScore(normalizeCmsName(page.generator), 1);
+  }
+
+  const hostname = hostnameFor(startUrl);
+  if (hostname.includes("myshopify.com")) addScore("Shopify", 3);
+
+  const best = [...scores.entries()].sort((a, b) => b[1] - a[1])[0];
+  return best?.[0] || "";
 }
 
 function extractLinks(baseUrl, html) {
@@ -2102,6 +2169,31 @@ function publicUser(user) {
   };
 }
 
+function inferAdminCms(website = "", latestSite = null) {
+  const fromSite = normalizeCmsName(latestSite?.cms || "");
+  if (fromSite) return fromSite;
+  const hostname = hostnameFor(website);
+  if (hostname.includes("myshopify.com")) return "Shopify";
+  return "Unknown";
+}
+
+function inferImplementationPath(website = "") {
+  return website ? "Editing existing site" : "Unknown";
+}
+
+function inferSetupStatus({ accessTier = "", scanCount = 0, website = "" }) {
+  if (!website) return "Missing site details";
+  if (["blocked", "expired_trial", "none"].includes(accessTier)) return "Access blocked";
+  if (!scanCount) return "Signed up, first scan pending";
+  return "Tracking live";
+}
+
+function inferAddUsStatus({ scanCount = 0, latestScanData = null }) {
+  if (!scanCount) return "Not started";
+  if (!latestScanData?.metrics?.completedAnswers) return "Waiting for scan data";
+  return "Not tracked yet";
+}
+
 function validateUserPayload(payload) {
   const name = cleanText(payload?.name || "");
   const email = cleanText(payload?.email || "");
@@ -2389,6 +2481,7 @@ async function getAdminOverview() {
       id: profile.id,
       name: profile.full_name || "",
       email: profile.email || "",
+      signupAt: profile.created_at || "",
       status: entitlement?.status || "missing",
       plan: entitlement?.plan || "",
       trialEndsAt: entitlement?.trial_ends_at || null,
@@ -2396,6 +2489,17 @@ async function getAdminOverview() {
       premiumInsights: entitlementHasPremiumInsights(entitlement),
       businessName: workspace?.business_name || "",
       website: workspace?.website || "",
+      cms: inferAdminCms(workspace?.website || "", latestScanData?.site || null),
+      implementationPath: inferImplementationPath(workspace?.website || ""),
+      setupStatus: inferSetupStatus({
+        accessTier: entitlementAccessTier(entitlement),
+        scanCount: scansByUserId.get(profile.id) || 0,
+        website: workspace?.website || "",
+      }),
+      addUsStatus: inferAddUsStatus({
+        scanCount: scansByUserId.get(profile.id) || 0,
+        latestScanData,
+      }),
       createdAt: profile.created_at || "",
       updatedAt: workspace?.updated_at || profile.updated_at || "",
       scanCount: scansByUserId.get(profile.id) || 0,

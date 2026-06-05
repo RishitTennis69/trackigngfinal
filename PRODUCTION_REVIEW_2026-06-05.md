@@ -380,3 +380,59 @@ Interpretation:
 
 - the old class of “production still points to local stuff” bug looks resolved on the landing side too
 - the next meaningful landing test is the actual free-audit interaction path, not basic routing or domain wiring
+
+## Final Browser Pass
+
+### Dashboard refresh continuity
+
+Result:
+
+- passed
+
+What I tested:
+
+1. seeded a fresh paid entitlement
+2. completed a real production signup on `https://trackigngfinal.vercel.app/`
+3. reached the `Tracking started` waiting state
+4. refreshed the page before the first scan finished
+
+Observed:
+
+- before refresh, the waiting state was visible
+- after refresh, the waiting state was still visible
+- the page did **not** drop into the empty dashboard shell
+
+Conclusion:
+
+- the production first-scan refresh continuity fix is now working
+
+### Landing Free Audit browser flow
+
+Result:
+
+- failed in the browser
+
+What I tested:
+
+1. opened `https://gleo-ai-visibility-landing-page.vercel.app/audit`
+2. filled:
+   - business name
+   - website URL
+   - email
+   - industry
+   - service area
+3. clicked `Run snapshot`
+
+Observed:
+
+- the page stayed on the final step
+- the UI showed: `Failed to fetch`
+- the failed request was:
+  - `POST https://gleo-ai-visibility-landing-page-production.up.railway.app/api/analyze-audit`
+- browser failure:
+  - `net::ERR_FAILED`
+
+Important nuance:
+
+- the backend endpoint itself **does** return `200` when called directly with the right payload
+- so this now looks like a browser-side connectivity issue, most likely CORS / origin handling, not a dead audit backend

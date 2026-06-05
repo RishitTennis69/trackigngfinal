@@ -208,6 +208,7 @@ function renderUsers(users) {
           <td>
             <strong>${escapeHtml(user.name || "Unknown user")}</strong>
             <div class="table-subcopy">${escapeHtml(user.email || "")}</div>
+            <div class="table-subcopy">Signed up ${escapeHtml(formatDate(user.signupAt || user.createdAt))}</div>
           </td>
           <td>
             <div class="stack-cell">
@@ -218,9 +219,19 @@ function renderUsers(users) {
           <td>
             <strong>${escapeHtml(user.businessName || "No business")}</strong>
             <div class="table-subcopy">${escapeHtml(user.website || "")}</div>
+            <div class="table-subcopy">CMS: ${escapeHtml(user.cms || "Unknown")}</div>
           </td>
-          <td>${escapeHtml(String(user.scanCount ?? 0))}</td>
-          <td>${user.latestVisibilityScore ?? "-"}</td>
+          <td>
+            <div class="stack-cell stack-cell-tight">
+              <span class="badge blue">${escapeHtml(user.setupStatus || "Unknown")}</span>
+              <span class="table-subcopy">${escapeHtml(user.implementationPath || "Unknown")}</span>
+              <span class="table-subcopy">Add us: ${escapeHtml(user.addUsStatus || "Not tracked yet")}</span>
+            </div>
+          </td>
+          <td>
+            <strong>${escapeHtml(String(user.scanCount ?? 0))}</strong>
+            <div class="table-subcopy">Latest score: ${escapeHtml(String(user.latestVisibilityScore ?? "-"))}</div>
+          </td>
           <td>${escapeHtml(formatDate(user.updatedAt || user.createdAt))}</td>
         </tr>
       `,
@@ -278,3 +289,4 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+

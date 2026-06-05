@@ -45,6 +45,26 @@ Expected:
 Notes:
 
 - this is currently blocking the most important public path on the deployed site
+- updated technical detail from a later browser pass:
+  - failed request:
+    - `POST https://gleo-ai-visibility-landing-page-production.up.railway.app/api/analyze-audit`
+  - browser-level failure:
+    - `net::ERR_FAILED`
+  - the audit backend itself returns `200` when called directly with the correct payload
+  - that strongly suggests the current production bug is browser-side connectivity, most likely CORS / origin handling, rather than the audit endpoint being down
+
+Likely root cause:
+
+- the production preflight response is returning:
+  - `Access-Control-Allow-Origin: https://gleo-ai-visibility-landing-page.vercel.app/`
+- note the trailing slash
+- browser origin matching is exact, so this may not match the real origin:
+  - `https://gleo-ai-visibility-landing-page.vercel.app`
+
+Suggested fix:
+
+- return the exact origin string with no trailing slash in the CORS allow-origin header
+- then rerun the browser audit flow
 
 ### 2. Production bundle is still calling a localhost checkout backend
 
