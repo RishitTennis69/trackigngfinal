@@ -2475,7 +2475,13 @@ function normalizeAdminDashboardPath(value) {
 }
 
 function isBlockedPublicAdminPath(pathname) {
-  return ["/admin", "/admin/", "/admin.html", "/admin/index.html"].includes(String(pathname || "").toLowerCase());
+  return [
+    "/admin",
+    "/admin/",
+    "/admin.html",
+    "/admin/index.html",
+    "/admin-shell.private.html",
+  ].includes(String(pathname || "").toLowerCase());
 }
 
 function parseCookies(request) {
@@ -2534,8 +2540,11 @@ function safeEqualString(left, right) {
 
 async function serveStatic(pathname, response) {
   const normalizedPath = ADMIN_DASHBOARD_ENABLED && (pathname === ADMIN_DASHBOARD_PATH || pathname === `${ADMIN_DASHBOARD_PATH}/`)
-    ? "/admin.html"
+    ? "/admin-shell.private.html"
     : pathname;
+  if (isBlockedPublicAdminPath(normalizedPath) && normalizedPath !== "/admin-shell.private.html") {
+    return sendText(response, "Not found", 404);
+  }
   const safePath = normalizedPath === "/" ? "/index.html" : normalizedPath;
   const filePath = path.normalize(path.join(__dirname, safePath));
   if (!filePath.startsWith(__dirname)) return sendText(response, "Not found", 404);

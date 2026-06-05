@@ -171,6 +171,12 @@ function apiUrl(pathname) {
   return `${API_BASE_URL}${pathname}`;
 }
 
+function isAwaitingFirstScan(user = state.user) {
+  if (!user?.id) return false;
+  if (state.currentScan?.metrics?.completedAnswers) return false;
+  return getPendingFirstScanUserId() === user.id || state.autoScanRequestedFor === user.id || state.isScanning;
+}
+
 async function restoreUserSession() {
   const token = localStorage.getItem("gleoAuthToken");
   if (!token) {
@@ -816,7 +822,11 @@ function round(value, digits = 0) {
 
 function bindLanding() {
   const isLoggedIn = Boolean(localStorage.getItem("gleoAuthToken") && state.user);
-  showAppShell(isLoggedIn);
+  if (isLoggedIn && isAwaitingFirstScan(state.user)) {
+    showTrackingLaunchPage();
+  } else {
+    showAppShell(isLoggedIn);
+  }
 
   document.querySelectorAll("[data-login-open]").forEach((button) => {
     button.addEventListener("click", () => showLoginPage());
@@ -994,7 +1004,7 @@ function showTrackingLaunchPage() {
   const isPremium = hasPremiumInsightsAccess();
   const accessTier = getAccessTier();
   const trialEndLabel = formatAccessDate(state.user?.trialEndsAt);
-  const isWaitingForResults = state.isScanning || (!hasScanRecord && state.autoScanRequestedFor === state.user?.id);
+  const isWaitingForResults = isAwaitingFirstScan(state.user) || (!hasScanRecord && state.autoScanRequestedFor === state.user?.id);
   const needsRetry = !hasCompletedScan && !isWaitingForResults;
   els.landingPage?.classList.add("hidden");
   els.appShell?.classList.add("hidden");
@@ -1290,8 +1300,14 @@ async function loadInitialData() {
   const pendingFirstScanUserId = getPendingFirstScanUserId();
   if (pendingFirstScanUserId && pendingFirstScanUserId === state.user?.id && !state.currentScan?.metrics?.completedAnswers) {
     startFirstScanPolling();
+    showTrackingLaunchPage();
+    setStatus(`We are still pulling together ${state.user?.businessName || "your"} first scan.`, "working");
   } else {
-    void maybeStartAutoScan({ background: true });
+    const started = await maybeStartAutoScan({ background: true });
+    if (started.started && !state.currentScan?.metrics?.completedAnswers) {
+      showTrackingLaunchPage();
+      setStatus(`We are still pulling together ${state.user?.businessName || "your"} first scan.`, "working");
+    }
   }
 
   if (state.currentScan?.metrics?.completedAnswers) {
@@ -1371,7 +1387,10 @@ function renderOverview() {
 
   if (!scan || !hasCompletedAnswers) {
     if (els.emptyStateTitle && els.emptyStateText) {
-      if (!scan) {
+      if (isAwaitingFirstScan(state.user)) {
+        els.emptyStateTitle.textContent = "Your first scan is in progress";
+        els.emptyStateText.textContent = `We are still calculating ${state.user?.businessName || "your business"}'s first score. Stay on the tracking started page for the cleanest handoff into the dashboard.`;
+      } else if (!scan) {
         els.emptyStateTitle.textContent = "No scan results yet";
         els.emptyStateText.textContent = "Start with the business name and website. Gleo will infer location and service areas from the site, then populate the dashboard with real scan output.";
       } else if (state.isScanning) {
