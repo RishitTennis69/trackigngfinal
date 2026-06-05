@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spinner Preview</title>
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      body {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 32px;
+        background: var(--bg);
+      }
+
+      .preview-shell {
+        width: min(560px, 100%);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preview-shell">
+      <div class="login-card tracking-launch-card">
+        <div>
+          <p class="eyebrow">Tracking started</p>
+          <h1 id="trackingLaunchTitle">Your tracking has been started.</h1>
+          <p id="trackingLaunchText">We are pulling together your first scan now. This usually takes a few minutes.</p>
+        </div>
+        <div class="tracking-launch-status" aria-hidden="true">
+          <span class="tracking-launch-progress-track">
+            <span class="tracking-launch-progress-fill"></span>
+          </span>
+        </div>
+        <p class="tracking-launch-hint" id="trackingLaunchHint">We will unlock the dashboard here as soon as the first score is ready.</p>
+      </div>
+    </div>
+  </body>
+</html>
