@@ -85,9 +85,9 @@ const MIME_TYPES = {
 };
 
 const server = http.createServer(async (request, response) => {
+  const corsHeaders = buildCorsHeaders(request);
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
-    const corsHeaders = buildCorsHeaders(request);
 
     if (request.method === "OPTIONS") {
       response.writeHead(204, corsHeaders);
