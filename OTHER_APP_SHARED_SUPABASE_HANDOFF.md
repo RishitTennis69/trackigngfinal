@@ -37,6 +37,20 @@ Important columns:
 - `paid_at`
 - `updated_at`
 
+The landing app should also create or update:
+
+- `public.workspaces`
+
+Important workspace columns:
+
+- `user_id`
+- `business_name`
+- `website`
+- `cms_platform`
+- `implementation_mode`
+- `implementation_status`
+- `add_us_status`
+
 ## Recommended values
 
 ### Regular paid tracking user
@@ -124,3 +138,45 @@ What the landing app needs to do:
 2. upsert `entitlements` by email after payment
 3. set `premium_insights=true` only for the premium tier
 4. keep `status='active'` for users who should be allowed into the dashboard
+5. write onboarding/workspace metadata into `workspaces`
+
+## Workspace metadata values
+
+Recommended values:
+
+### `cms_platform`
+
+Use the user's chosen answer, for example:
+
+- `WordPress`
+- `Squarespace`
+- `Wix`
+- `Webflow`
+- `Shopify`
+- `Custom / Other`
+- `Not sure`
+
+### `implementation_mode`
+
+Use one of:
+
+- `Editing existing site`
+- `Starting from scratch`
+
+### `implementation_status`
+
+Use one of:
+
+- `Not started`
+- `In progress`
+- `Done`
+
+### `add_us_status`
+
+Use one of:
+
+- `Not started`
+- `In progress`
+- `Done`
+
+These should be treated as explicit tracked values, not inferred dashboard guesses.

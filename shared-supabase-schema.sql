@@ -23,6 +23,10 @@ create table if not exists public.workspaces (
   user_id text primary key references public.profiles(id) on delete cascade,
   business_name text not null,
   website text not null,
+  cms_platform text,
+  implementation_mode text,
+  implementation_status text,
+  add_us_status text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

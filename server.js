@@ -2009,6 +2009,10 @@ function mergeSharedUser(profile, workspace, credential, entitlement) {
     passwordHash: credential?.password_hash || "",
     businessName: workspace?.business_name || "",
     website: workspace?.website || "",
+    cmsPlatform: workspace?.cms_platform || "",
+    implementationMode: workspace?.implementation_mode || "",
+    implementationStatus: workspace?.implementation_status || "",
+    addUsStatus: workspace?.add_us_status || "",
     trialEndsAt: entitlement?.trial_ends_at || null,
     entitlementStatus: entitlement?.status || "",
     entitlementPlan: entitlement?.plan || "",
@@ -2177,18 +2181,28 @@ function inferAdminCms(website = "", latestSite = null) {
   return "Unknown";
 }
 
-function inferImplementationPath(website = "") {
-  return website ? "Editing existing site" : "Unknown";
+function normalizeWorkspaceMetadataValue(value) {
+  return cleanText(value || "");
 }
 
-function inferSetupStatus({ accessTier = "", scanCount = 0, website = "" }) {
+function inferImplementationPath(website = "", explicitValue = "") {
+  const explicit = normalizeWorkspaceMetadataValue(explicitValue);
+  if (explicit) return explicit;
+  return website ? "Editing existing site" : "Not captured";
+}
+
+function inferSetupStatus({ accessTier = "", scanCount = 0, website = "", explicitValue = "" }) {
+  const explicit = normalizeWorkspaceMetadataValue(explicitValue);
+  if (explicit) return explicit;
   if (!website) return "Missing site details";
   if (["blocked", "expired_trial", "none"].includes(accessTier)) return "Access blocked";
   if (!scanCount) return "Signed up, first scan pending";
   return "Tracking live";
 }
 
-function inferAddUsStatus({ scanCount = 0, latestScanData = null }) {
+function inferAddUsStatus({ scanCount = 0, latestScanData = null, explicitValue = "" }) {
+  const explicit = normalizeWorkspaceMetadataValue(explicitValue);
+  if (explicit) return explicit;
   if (!scanCount) return "Not started";
   if (!latestScanData?.metrics?.completedAnswers) return "Waiting for scan data";
   return "Not tracked yet";
@@ -2489,16 +2503,18 @@ async function getAdminOverview() {
       premiumInsights: entitlementHasPremiumInsights(entitlement),
       businessName: workspace?.business_name || "",
       website: workspace?.website || "",
-      cms: inferAdminCms(workspace?.website || "", latestScanData?.site || null),
-      implementationPath: inferImplementationPath(workspace?.website || ""),
+      cms: normalizeWorkspaceMetadataValue(workspace?.cms_platform || "") || inferAdminCms(workspace?.website || "", latestScanData?.site || null),
+      implementationPath: inferImplementationPath(workspace?.website || "", workspace?.implementation_mode || ""),
       setupStatus: inferSetupStatus({
         accessTier: entitlementAccessTier(entitlement),
         scanCount: scansByUserId.get(profile.id) || 0,
         website: workspace?.website || "",
+        explicitValue: workspace?.implementation_status || "",
       }),
       addUsStatus: inferAddUsStatus({
         scanCount: scansByUserId.get(profile.id) || 0,
         latestScanData,
+        explicitValue: workspace?.add_us_status || "",
       }),
       createdAt: profile.created_at || "",
       updatedAt: workspace?.updated_at || profile.updated_at || "",
