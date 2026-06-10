@@ -221,6 +221,25 @@ const server = http.createServer(async (request, response) => {
       }, 201);
     }
 
+    if (url.pathname === "/api/admin/users" && request.method === "DELETE") {
+      if (!ADMIN_DASHBOARD_ENABLED) {
+        return sendText(response, "Not found", 404);
+      }
+      if (!getAuthenticatedAdmin(request)) {
+        return sendText(response, "Not found", 404);
+      }
+      const payload = await readJsonBody(request);
+      if (cleanText(payload?.confirm || "") !== "DELETE ALL USERS") {
+        return sendJson(response, { error: 'Type DELETE ALL USERS to confirm clearing every client account.' }, 400);
+      }
+      const summary = await clearAllUserData();
+      return sendJson(response, {
+        ok: true,
+        message: "All user data cleared.",
+        summary,
+      }, 200);
+    }
+
     if (url.pathname === "/api/admin/login" && request.method === "POST") {
       if (!ADMIN_DASHBOARD_ENABLED) {
         return sendText(response, "Not found", 404);
@@ -1992,6 +2011,54 @@ async function supabaseDelete(table, filters = {}) {
     },
   });
   if (!response.ok) throw new Error(`Supabase delete failed for ${table}.`);
+}
+
+async function supabaseDeleteAll(table, notNullColumn) {
+  const params = new URLSearchParams();
+  params.set(notNullColumn, "not.is.null");
+  const response = await supabaseRequest(`/rest/v1/${table}?${params.toString()}`, {
+    method: "DELETE",
+    headers: {
+      ...supabaseHeaders(),
+      Prefer: "return=minimal",
+    },
+  });
+  if (!response.ok) throw new Error(`Supabase delete failed for ${table}.`);
+}
+
+async function clearAllUserData() {
+  if (USE_SHARED_SUPABASE) {
+    await supabaseDeleteAll("entitlements", "email");
+    await supabaseDeleteAll("profiles", "id");
+    return {
+      mode: "shared_supabase",
+      cleared: ["entitlements", "profiles", "workspaces", "dashboard_credentials", "dashboard_sessions", "dashboard_scans", "service_requests"],
+    };
+  }
+
+  await writeUsers([]);
+  await writeSessions([]);
+  await writeServiceRequests([]);
+  if (USE_SUPABASE) {
+    await writeCollection("users", []);
+    await writeCollection("sessions", []);
+    await writeCollection("scans", []);
+    await writeCollection("service_requests", []);
+    return {
+      mode: "legacy_supabase",
+      cleared: ["users", "sessions", "scans", "service_requests"],
+    };
+  }
+
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeFile(USERS_FILE, "[]\n", "utf8");
+  await writeFile(SESSIONS_FILE, "[]\n", "utf8");
+  await writeFile(SCANS_FILE, "[]\n", "utf8");
+  await writeFile(SERVICE_REQUESTS_FILE, "[]\n", "utf8");
+  return {
+    mode: "local_json",
+    cleared: ["users.json", "sessions.json", "scans.json", "service-requests.json"],
+  };
 }
 
 function normalizeEntitlementStatus(status) {

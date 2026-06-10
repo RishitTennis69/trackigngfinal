@@ -337,7 +337,45 @@ h2 {
   text-transform: uppercase;
 }
 
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-soft));
+  color: var(--danger);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.danger-button.compact {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.danger-button svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.danger-button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
 .panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 14px;
 }
 

@@ -22,6 +22,8 @@ const els = {
   adminStatus: document.querySelector("#adminStatus"),
   adminThemeToggle: document.querySelector("#adminThemeToggle"),
   adminThemeToggleAuth: document.querySelector("#adminThemeToggleAuth"),
+  clearAllUsersButton: document.querySelector("#clearAllUsersButton"),
+  clearAllUsersButtonTable: document.querySelector("#clearAllUsersButtonTable"),
 };
 
 const ADMIN_THEME_KEY = "gleoAdminTheme";
@@ -70,6 +72,12 @@ function init() {
   els.adminClientForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     void createClientAccount();
+  });
+  els.clearAllUsersButton?.addEventListener("click", () => {
+    void clearAllUserData();
+  });
+  els.clearAllUsersButtonTable?.addEventListener("click", () => {
+    void clearAllUserData();
   });
   void restoreAdminSession();
 }
@@ -173,6 +181,42 @@ function clearClientStatus() {
   els.adminClientStatus.textContent = "";
   els.adminClientStatus.classList.add("hidden");
   els.adminClientStatus.classList.remove("success");
+}
+
+async function clearAllUserData() {
+  const confirmed = window.confirm(
+    "Delete every client account, entitlement, scan, and session? This cannot be undone.",
+  );
+  if (!confirmed) return;
+
+  const typed = window.prompt('Type DELETE ALL USERS to confirm.');
+  if (typed !== "DELETE ALL USERS") {
+    setStatus("Clear cancelled. Confirmation text did not match.");
+    return;
+  }
+
+  setStatus("Clearing all user data...");
+  toggleClearUsersBusy(true);
+  try {
+    const result = await fetchJson("/api/admin/users", {
+      method: "DELETE",
+      body: JSON.stringify({ confirm: "DELETE ALL USERS" }),
+    });
+    clearStatus();
+    setClientStatus(result.message || "All user data cleared.", "success");
+    await loadAdminData();
+  } catch (error) {
+    setStatus(error.message || "Could not clear user data.");
+  } finally {
+    toggleClearUsersBusy(false);
+  }
+}
+
+function toggleClearUsersBusy(isBusy) {
+  for (const button of [els.clearAllUsersButton, els.clearAllUsersButtonTable]) {
+    if (!button) continue;
+    button.disabled = isBusy;
+  }
 }
 
 async function loadAdminData() {
