@@ -6,16 +6,25 @@
     <title>Gleo Admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="admin.css" />
+    <script>
+      (function () {
+        const theme = localStorage.getItem("gleoAdminTheme") || "light";
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <main class="admin-shell">
       <section class="admin-auth" id="adminAuth">
         <div class="admin-auth-card">
-          <p class="eyebrow">Private admin</p>
-          <h1>Admin Sign In</h1>
-          <p class="hero-copy">Use the configured admin email and password to open the operations dashboard.</p>
+          <div class="admin-auth-top">
+            <p class="eyebrow">Private admin</p>
+            <button class="theme-toggle" type="button" id="adminThemeToggleAuth" aria-label="Toggle dark mode">Dark</button>
+          </div>
+          <h1>Admin sign in</h1>
+          <p class="hero-copy">Operations access for provisioning clients and reviewing shared Supabase data.</p>
           <form class="admin-login-form" id="adminLoginForm">
             <label>
               <span>Email</span>
@@ -25,7 +34,7 @@
               <span>Password</span>
               <input id="adminPasswordInput" type="password" autocomplete="current-password" required />
             </label>
-            <button class="primary-link auth-submit" type="submit" id="adminLoginButton">Sign In</button>
+            <button class="primary-link auth-submit" type="submit" id="adminLoginButton">Sign in</button>
           </form>
           <p class="admin-auth-status hidden" id="adminAuthStatus"></p>
         </div>
@@ -34,15 +43,50 @@
       <section class="admin-board hidden" id="adminBoard">
         <section class="admin-hero">
           <div>
-            <p class="eyebrow">Admin view</p>
-            <h1>Gleo Operations</h1>
-            <p class="hero-copy">A clean readout of the shared Supabase data: users, entitlements, scans, and premium reoptimization requests.</p>
+            <p class="eyebrow">Admin</p>
+            <h1>Operations</h1>
+            <p class="hero-copy">Provision client logins, then monitor entitlements, scans, and premium requests.</p>
           </div>
           <div class="hero-actions">
+            <button class="secondary-button theme-toggle" type="button" id="adminThemeToggle" aria-label="Toggle dark mode">Dark</button>
             <button class="secondary-button" type="button" id="refreshButton">Refresh</button>
-            <button class="secondary-button" type="button" id="adminLogoutButton">Log Out</button>
+            <button class="secondary-button" type="button" id="adminLogoutButton">Log out</button>
             <a class="primary-link" href="/">Open dashboard</a>
           </div>
+        </section>
+
+        <section class="panel admin-provision-panel" id="adminProvisionPanel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Step 1</p>
+              <h2>Create client account</h2>
+            </div>
+          </div>
+          <p class="hero-copy">Fill this out for each client. Send them their name, email, and password — they sign in on the main dashboard (not here).</p>
+          <form class="admin-client-form" id="adminClientForm">
+            <label>
+              <span>Full name</span>
+              <input id="adminClientNameInput" type="text" autocomplete="name" required />
+            </label>
+            <label>
+              <span>Email</span>
+              <input id="adminClientEmailInput" type="email" autocomplete="email" required />
+            </label>
+            <label>
+              <span>Password</span>
+              <input id="adminClientPasswordInput" type="text" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" />
+            </label>
+            <label>
+              <span>Business name</span>
+              <input id="adminClientBusinessInput" type="text" autocomplete="organization" required />
+            </label>
+            <label class="full-width">
+              <span>Website</span>
+              <input id="adminClientWebsiteInput" type="url" autocomplete="url" required placeholder="https://yourbusiness.com" />
+            </label>
+            <button class="primary-link auth-submit full-width" type="submit" id="adminClientSubmitButton">Create client account</button>
+          </form>
+          <p class="admin-form-status hidden" id="adminClientStatus"></p>
         </section>
 
         <section class="stats-grid" id="statsGrid"></section>
@@ -54,7 +98,7 @@
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Premium queue</p>
-                <h2>Service Requests</h2>
+                <h2>Service requests</h2>
               </div>
             </div>
             <div class="request-list" id="requestList"></div>

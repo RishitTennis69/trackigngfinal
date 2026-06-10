@@ -7,12 +7,47 @@ const els = {
   adminLoginButton: document.querySelector("#adminLoginButton"),
   adminLogoutButton: document.querySelector("#adminLogoutButton"),
   adminAuthStatus: document.querySelector("#adminAuthStatus"),
+  adminClientForm: document.querySelector("#adminClientForm"),
+  adminClientNameInput: document.querySelector("#adminClientNameInput"),
+  adminClientEmailInput: document.querySelector("#adminClientEmailInput"),
+  adminClientPasswordInput: document.querySelector("#adminClientPasswordInput"),
+  adminClientBusinessInput: document.querySelector("#adminClientBusinessInput"),
+  adminClientWebsiteInput: document.querySelector("#adminClientWebsiteInput"),
+  adminClientSubmitButton: document.querySelector("#adminClientSubmitButton"),
+  adminClientStatus: document.querySelector("#adminClientStatus"),
   statsGrid: document.querySelector("#statsGrid"),
   requestList: document.querySelector("#requestList"),
   usersTable: document.querySelector("#usersTable"),
   refreshButton: document.querySelector("#refreshButton"),
   adminStatus: document.querySelector("#adminStatus"),
+  adminThemeToggle: document.querySelector("#adminThemeToggle"),
+  adminThemeToggleAuth: document.querySelector("#adminThemeToggleAuth"),
 };
+
+const ADMIN_THEME_KEY = "gleoAdminTheme";
+
+function initTheme() {
+  syncThemeToggleLabels();
+  els.adminThemeToggle?.addEventListener("click", toggleTheme);
+  els.adminThemeToggleAuth?.addEventListener("click", toggleTheme);
+}
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+function toggleTheme() {
+  const nextTheme = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = nextTheme;
+  localStorage.setItem(ADMIN_THEME_KEY, nextTheme);
+  syncThemeToggleLabels();
+}
+
+function syncThemeToggleLabels() {
+  const label = currentTheme() === "dark" ? "Light" : "Dark";
+  if (els.adminThemeToggle) els.adminThemeToggle.textContent = label;
+  if (els.adminThemeToggleAuth) els.adminThemeToggleAuth.textContent = label;
+}
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init, { once: true });
@@ -21,6 +56,7 @@ if (document.readyState === "loading") {
 }
 
 function init() {
+  initTheme();
   els.refreshButton?.addEventListener("click", () => {
     void loadAdminData();
   });
@@ -30,6 +66,10 @@ function init() {
   els.adminLoginForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     void loginAdmin();
+  });
+  els.adminClientForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void createClientAccount();
   });
   void restoreAdminSession();
 }
@@ -78,6 +118,61 @@ async function logoutAdmin() {
     // ignore logout errors
   }
   showAdminLogin();
+}
+
+async function createClientAccount() {
+  const payload = {
+    name: els.adminClientNameInput?.value.trim() || "",
+    email: els.adminClientEmailInput?.value.trim() || "",
+    password: els.adminClientPasswordInput?.value || "",
+    businessName: els.adminClientBusinessInput?.value.trim() || "",
+    website: els.adminClientWebsiteInput?.value.trim() || "",
+  };
+  if (!payload.name || !payload.email || !payload.password || !payload.businessName || !payload.website) {
+    setClientStatus("Fill in every client field.");
+    return;
+  }
+  if (payload.password.length < 8) {
+    setClientStatus("Use a password with at least 8 characters.");
+    return;
+  }
+
+  setClientStatus("Creating client account...");
+  toggleClientBusy(true);
+  try {
+    const result = await fetchJson("/api/admin/clients", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setClientStatus(`Created ${result.user?.email || payload.email}. Send them their login details.`, "success");
+    els.adminClientForm?.reset();
+    await loadAdminData();
+  } catch (error) {
+    setClientStatus(error.message || "Could not create the client account.");
+  } finally {
+    toggleClientBusy(false);
+  }
+}
+
+function toggleClientBusy(isBusy) {
+  if (els.adminClientSubmitButton) {
+    els.adminClientSubmitButton.disabled = isBusy;
+    els.adminClientSubmitButton.textContent = isBusy ? "Creating..." : "Create Client Account";
+  }
+}
+
+function setClientStatus(message, tone = "error") {
+  if (!els.adminClientStatus) return;
+  els.adminClientStatus.textContent = message;
+  els.adminClientStatus.classList.remove("hidden", "success");
+  if (tone === "success") els.adminClientStatus.classList.add("success");
+}
+
+function clearClientStatus() {
+  if (!els.adminClientStatus) return;
+  els.adminClientStatus.textContent = "";
+  els.adminClientStatus.classList.add("hidden");
+  els.adminClientStatus.classList.remove("success");
 }
 
 async function loadAdminData() {

@@ -22,7 +22,7 @@
         </div>
         <div class="landing-nav-actions">
           <button class="landing-sign-in" type="button" data-signin-open>Sign In</button>
-          <button class="landing-login" type="button" data-login-open>Sign Up</button>
+          <button class="landing-login signup-only" type="button" data-login-open>Sign Up</button>
         </div>
       </nav>
 
@@ -166,7 +166,8 @@
           <p class="eyebrow">Start today</p>
           <h2>Start Understanding How AI Sees <span>Your Business</span>.</h2>
           <p>Run the first scan, see where you show up, and turn visibility gaps into clear fixes.</p>
-          <button class="primary-button border-beam-button" type="button" data-login-open>Level Up Today</button>
+          <button class="primary-button border-beam-button signup-only" type="button" data-login-open>Level Up Today</button>
+          <button class="primary-button border-beam-button signup-only-fallback" type="button" data-signin-open hidden>Sign In</button>
         </section>
       </main>
     </section>
@@ -214,7 +215,7 @@
           <div>
             <p class="eyebrow">Welcome back</p>
             <h1>Sign In to Gleo</h1>
-            <p>Enter your name, email, and password to open your AI visibility dashboard.</p>
+            <p>Enter your name, email, and password to open your AI visibility dashboard. Accounts are created by Gleo.</p>
           </div>
           <form class="email-login-form" id="signInForm">
             <label>
@@ -240,7 +241,7 @@
             <button class="text-button" type="button" id="forgotPasswordButton">Forgot Password?</button>
           </div>
           <button class="text-button" type="button" id="signInBackToLandingButton">Back to landing page</button>
-          <p class="login-switch">Need an account? <button class="text-button inline-link" type="button" data-login-open>Sign up</button></p>
+          <p class="login-switch signup-only" id="loginSwitch">Need an account? <button class="text-button inline-link" type="button" data-login-open>Sign up</button></p>
         </div>
       </div>
     </section>

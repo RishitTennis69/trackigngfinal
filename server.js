@@ -35,6 +35,9 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 const SUPABASE_PROJECT_MODE = String(process.env.SUPABASE_PROJECT_MODE || "legacy").trim().toLowerCase();
 const USE_SHARED_SUPABASE = USE_SUPABASE && SUPABASE_PROJECT_MODE === "shared";
+const STANDALONE_MODE = parseEnvBool(process.env.STANDALONE_MODE, true);
+const STANDALONE_PREMIUM_INSIGHTS = parseEnvBool(process.env.STANDALONE_PREMIUM_INSIGHTS, false);
+const PUBLIC_SIGNUP_ENABLED = parseEnvBool(process.env.PUBLIC_SIGNUP_ENABLED, false);
 const ENTITLEMENT_ALLOWED_STATUSES = String(process.env.ENTITLEMENT_ALLOWED_STATUSES || "active,trialing")
   .split(",")
   .map((value) => value.trim().toLowerCase())
@@ -45,6 +48,9 @@ const PREMIUM_ENTITLEMENT_PLANS = String(process.env.PREMIUM_ENTITLEMENT_PLANS |
   .filter(Boolean);
 const MAX_CRAWL_PAGES = clamp(Number(process.env.MAX_CRAWL_PAGES || 8), 1, 16);
 const MAX_SCAN_PROMPTS = clamp(Number(process.env.MAX_SCAN_PROMPTS || 18), 1, 18);
+const OPENAI_USE_WEB_SEARCH = parseEnvBool(process.env.OPENAI_USE_WEB_SEARCH, true);
+const GEMINI_USE_WEB_SEARCH = parseEnvBool(process.env.GEMINI_USE_WEB_SEARCH, true);
+const OPENROUTER_USE_WEB_SEARCH = parseEnvBool(process.env.OPENROUTER_USE_WEB_SEARCH, true);
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "";
@@ -96,6 +102,11 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (url.pathname === "/api/auth/signup" && request.method === "POST") {
+      if (!PUBLIC_SIGNUP_ENABLED) {
+        return sendJson(response, {
+          error: "Account creation is handled by Gleo. Sign in with the login details you received.",
+        }, 403, corsHeaders);
+      }
       const payload = await readJsonBody(request);
       const validationError = validateUserPayload(payload);
       if (validationError) return sendJson(response, { error: validationError }, 400, corsHeaders);
@@ -109,7 +120,7 @@ const server = http.createServer(async (request, response) => {
       const name = cleanText(payload?.name || "");
       const email = cleanText(payload?.email || "").toLowerCase();
       const password = String(payload?.password || "");
-      if (!name) return sendJson(response, { error: "Enter your full name." }, 400, corsHeaders);
+      if (!STANDALONE_MODE && !name) return sendJson(response, { error: "Enter your full name." }, 400, corsHeaders);
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return sendJson(response, { error: "Enter a valid email address." }, 400, corsHeaders);
       }
@@ -117,7 +128,7 @@ const server = http.createServer(async (request, response) => {
       await ensureUserHasAccess({ email });
       const user = USE_SHARED_SUPABASE ? await readSharedUserByEmail(email) : (await readUsers()).find((entry) => entry.email.toLowerCase() === email);
       if (!user) return sendJson(response, { error: "No account found for that email. Sign up first." }, 404, corsHeaders);
-      if (normalized(user.name) !== normalized(name)) {
+      if (name && normalized(user.name) !== normalized(name)) {
         return sendJson(response, { error: "The name does not match this account." }, 401, corsHeaders);
       }
       if (!verifyPassword(password, user.passwordHash || "")) {
@@ -190,6 +201,24 @@ const server = http.createServer(async (request, response) => {
         return sendText(response, "Not found", 404);
       }
       return sendJson(response, await getAdminOverview());
+    }
+
+    if (url.pathname === "/api/admin/clients" && request.method === "POST") {
+      if (!ADMIN_DASHBOARD_ENABLED) {
+        return sendText(response, "Not found", 404);
+      }
+      if (!getAuthenticatedAdmin(request)) {
+        return sendText(response, "Not found", 404);
+      }
+      const payload = await readJsonBody(request);
+      const validationError = validateUserPayload(payload);
+      if (validationError) return sendJson(response, { error: validationError }, 400);
+      const user = await createUser(payload);
+      return sendJson(response, {
+        ok: true,
+        message: "Client account created.",
+        user: publicUser(user),
+      }, 201);
     }
 
     if (url.pathname === "/api/admin/login" && request.method === "POST") {
@@ -795,7 +824,7 @@ async function askOpenAI(context) {
     text: { verbosity: "low" },
   };
 
-  if (process.env.OPENAI_USE_WEB_SEARCH !== "false") {
+  if (OPENAI_USE_WEB_SEARCH) {
     body.tools = [{ type: "web_search_preview" }];
   }
 
@@ -822,20 +851,36 @@ async function askOpenAI(context) {
 
 async function askGemini(context) {
   const model = encodeURIComponent(PROVIDERS.gemini.model);
-  const data = await postJson(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: buildQuestion(context) }],
-        },
-      ],
-      generationConfig: {
-        maxOutputTokens: 900,
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: buildQuestion(context) }],
       },
+    ],
+    generationConfig: {
+      maxOutputTokens: 900,
     },
-  );
+  };
+  if (GEMINI_USE_WEB_SEARCH) {
+    body.tools = [{ google_search: {} }];
+  }
+
+  let data;
+  try {
+    data = await postJson(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      body,
+    );
+  } catch (error) {
+    if (!body.tools) throw error;
+    const retryBody = { ...body };
+    delete retryBody.tools;
+    data = await postJson(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      retryBody,
+    );
+  }
 
   return {
     answer:
@@ -863,12 +908,27 @@ async function askOpenRouter(context) {
     ],
     max_tokens: 900,
   };
+  if (OPENROUTER_USE_WEB_SEARCH) {
+    body.tools = [{ type: "openrouter:web_search" }];
+  }
 
-  const data = await postJson("https://openrouter.ai/api/v1/chat/completions", body, {
-    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-    ...(OPENROUTER_HTTP_REFERER ? { "HTTP-Referer": OPENROUTER_HTTP_REFERER } : {}),
-    "X-Title": "Gleo GEO Insights",
-  });
+  let data;
+  try {
+    data = await postJson("https://openrouter.ai/api/v1/chat/completions", body, {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      ...(OPENROUTER_HTTP_REFERER ? { "HTTP-Referer": OPENROUTER_HTTP_REFERER } : {}),
+      "X-Title": "Gleo GEO Insights",
+    });
+  } catch (error) {
+    if (!body.tools) throw error;
+    const retryBody = { ...body };
+    delete retryBody.tools;
+    data = await postJson("https://openrouter.ai/api/v1/chat/completions", retryBody, {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      ...(OPENROUTER_HTTP_REFERER ? { "HTTP-Referer": OPENROUTER_HTTP_REFERER } : {}),
+      "X-Title": "Gleo GEO Insights",
+    });
+  }
 
   const citations = [
     ...(Array.isArray(data.citations) ? data.citations : []),
@@ -877,7 +937,7 @@ async function askOpenRouter(context) {
 
   return {
     answer: data.choices?.[0]?.message?.content?.trim() || "",
-    citations,
+    citations: [...new Set([...citations, ...extractCitations(data)])],
     rawMeta: { id: data.id },
   };
 }
@@ -1732,6 +1792,8 @@ async function fetchText(url, timeoutMs) {
 async function getConfig() {
   const scans = await readScans();
   return {
+    standaloneMode: STANDALONE_MODE,
+    publicSignupEnabled: PUBLIC_SIGNUP_ENABLED,
     providers: Object.fromEntries(
       Object.entries(PROVIDERS).map(([key, provider]) => [
         key,
@@ -1766,6 +1828,15 @@ function normalizeUrl(value) {
   const url = new URL(withProtocol);
   url.hash = "";
   return url.toString().replace(/\/$/, "");
+}
+
+function hostnameFor(value) {
+  try {
+    const host = value.includes("://") ? new URL(value).hostname : value;
+    return host.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function inferNameFromUrl(url) {
@@ -1972,13 +2043,35 @@ async function readEntitlementByEmail(email) {
   return rows[0] || null;
 }
 
+async function ensureStandaloneEntitlement(email) {
+  const normalizedEmail = cleanText(email || "").toLowerCase();
+  if (!normalizedEmail || !USE_SHARED_SUPABASE) return null;
+  const existing = await readEntitlementByEmail(normalizedEmail);
+  if (existing && entitlementStatusAllowed(existing.status, existing)) return existing;
+  const now = new Date().toISOString();
+  await supabaseUpsert("entitlements", {
+    email: normalizedEmail,
+    status: "active",
+    plan: "standalone",
+    premium_insights: STANDALONE_PREMIUM_INSIGHTS,
+    trial_ends_at: null,
+    source_app: "dashboard",
+    updated_at: now,
+    created_at: existing?.created_at || now,
+  }, "email");
+  return readEntitlementByEmail(normalizedEmail);
+}
+
 async function ensureUserHasAccess(userLike) {
   if (!USE_SHARED_SUPABASE) return true;
   const email = cleanText(userLike?.email || "").toLowerCase();
   if (!email) {
-    const error = new Error("This dashboard requires a paid Gleo access record before sign-in.");
+    const error = new Error("This dashboard requires an account email before sign-in.");
     error.statusCode = 403;
     throw error;
+  }
+  if (STANDALONE_MODE) {
+    return ensureStandaloneEntitlement(email);
   }
   const entitlement = await readEntitlementByEmail(email);
   if (!entitlement) {
@@ -2234,7 +2327,9 @@ async function createUser(payload) {
   } catch {
     throw new Error("Enter your business website.");
   }
-  await ensureUserHasAccess({ email });
+  if (!STANDALONE_MODE) {
+    await ensureUserHasAccess({ email });
+  }
   if (USE_SHARED_SUPABASE) {
     const existingProfile = await readSharedProfileByEmail(email);
     const existingUser = await readSharedUserByProfile(existingProfile);
@@ -2264,6 +2359,9 @@ async function createUser(payload) {
       created_at: existingProfile?.created_at || existingUser?.createdAt || now,
       updated_at: now,
     }, "user_id");
+    if (STANDALONE_MODE) {
+      await ensureStandaloneEntitlement(email);
+    }
     return readSharedUserById(userId);
   }
   const users = await readUsers();
@@ -2723,6 +2821,14 @@ function decodeEntities(text) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, " ");
+}
+
+function parseEnvBool(value, defaultValue) {
+  if (value === undefined || value === null || String(value).trim() === "") return defaultValue;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return defaultValue;
 }
 
 function cleanText(text) {

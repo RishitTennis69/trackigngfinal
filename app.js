@@ -129,6 +129,7 @@ const els = {
   emptyStateText: document.querySelector("#emptyStateText"),
   answerDialog: document.querySelector("#answerDialog"),
   dialogContent: document.querySelector("#dialogContent"),
+  loginSwitch: document.querySelector("#loginSwitch"),
   clearResultsButton: document.querySelector("#clearResultsButton"),
 };
 
@@ -140,7 +141,6 @@ if (document.readyState === "loading") {
 
 async function init() {
   await restoreUserSession();
-  bindLanding();
   bindNavigation();
   bindScan();
   bindClear();
@@ -149,6 +149,7 @@ async function init() {
   bindPremiumInsights();
   bindPasswordToggles();
   await loadInitialData();
+  bindLanding();
 }
 
 function resolveApiBaseUrl() {
@@ -820,6 +821,27 @@ function round(value, digits = 0) {
   return Math.round(value * factor) / factor;
 }
 
+function isPublicSignupEnabled() {
+  return state.config?.publicSignupEnabled === true;
+}
+
+function applyPublicSignupState() {
+  const enabled = isPublicSignupEnabled();
+  document.querySelectorAll(".signup-only").forEach((node) => {
+    node.hidden = !enabled;
+  });
+  const landingSubmit = els.landingStartForm?.querySelector("button[type='submit']");
+  if (landingSubmit) {
+    landingSubmit.textContent = enabled ? "Get Started" : "Sign In";
+  }
+  if (els.loginSwitch) {
+    els.loginSwitch.hidden = !enabled;
+  }
+  document.querySelectorAll(".signup-only-fallback").forEach((node) => {
+    node.hidden = enabled;
+  });
+}
+
 function bindLanding() {
   const isLoggedIn = Boolean(localStorage.getItem("gleoAuthToken") && state.user);
   if (isLoggedIn && isAwaitingFirstScan(state.user)) {
@@ -829,7 +851,14 @@ function bindLanding() {
   }
 
   document.querySelectorAll("[data-login-open]").forEach((button) => {
-    button.addEventListener("click", () => showLoginPage());
+    button.addEventListener("click", () => {
+      if (!isPublicSignupEnabled()) {
+        showSignInPage();
+        showToast("Sign in with the login details Gleo sent you.");
+        return;
+      }
+      showLoginPage();
+    });
   });
 
   document.querySelectorAll("[data-signin-open]").forEach((button) => {
@@ -838,6 +867,11 @@ function bindLanding() {
 
   els.landingStartForm?.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (!isPublicSignupEnabled()) {
+      showSignInPage();
+      showToast("Sign in with the login details Gleo sent you.");
+      return;
+    }
     state.pendingStart = {
       website: normalizeWebsiteInput(els.landingWebsiteInput.value.trim()),
       businessName: titleCaseWords(els.landingBusinessInput.value.trim()),
@@ -1282,6 +1316,7 @@ function showToast(message) {
 async function loadInitialData() {
   const [config, scansData] = await Promise.all([fetchJson("/api/config"), fetchJson("/api/scans")]);
   state.config = config;
+  applyPublicSignupState();
   const serverScans = scansData.scans || [];
 
   if (localStorage.getItem("gleoAuthToken") && state.user) {
@@ -1343,6 +1378,7 @@ function renderAll() {
 
 function renderConfig() {
   if (!state.config) return;
+  applyPublicSignupState();
 
   if (els.providerStatus) {
     els.providerStatus.innerHTML = Object.entries(state.config.providers)
