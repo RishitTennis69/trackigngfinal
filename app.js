@@ -22,6 +22,7 @@ const state = {
   firstScanPollTimer: null,
   firstScanPollAttempts: 0,
   trackingProgressRaf: null,
+  trackingProgressTimer: null,
   trackingProgressStartedAt: null,
   premiumRequestPending: false,
 };
@@ -31,9 +32,10 @@ const FIRST_SCAN_PENDING_AT_KEY = "gleoFirstScanPendingAt";
 const FIRST_SCAN_POLL_INTERVAL_MS = 5000;
 const FIRST_SCAN_POLL_MAX_ATTEMPTS = 36;
 const FIRST_SCAN_PENDING_MAX_MS = 20 * 60 * 1000;
-const FIRST_SCAN_RESUME_GRACE_MS = 90 * 1000;
 const SCAN_REQUEST_TIMEOUT_MS = 12 * 60 * 1000;
 const TRACKING_PROGRESS_DURATION_MS = 150000;
+const SERVICE_LOCATION_STORAGE_PREFIX = "gleoServiceLocation:";
+const SERVICE_INDUSTRY_STORAGE_PREFIX = "gleoServiceIndustry:";
 const API_BASE_URL = resolveApiBaseUrl();
 
 const els = {
@@ -47,6 +49,15 @@ const els = {
   businessSetupForm: document.querySelector("#businessSetupForm"),
   businessSetupNameInput: document.querySelector("#businessSetupNameInput"),
   businessSetupWebsiteInput: document.querySelector("#businessSetupWebsiteInput"),
+  businessSetupLocationInput: document.querySelector("#businessSetupLocationInput"),
+  businessSetupIndustryInput: document.querySelector("#businessSetupIndustryInput"),
+  locationSetupPage: document.querySelector("#locationSetupPage"),
+  locationSetupIntro: document.querySelector("#locationSetupIntro"),
+  locationSetupForm: document.querySelector("#locationSetupForm"),
+  locationSetupInput: document.querySelector("#locationSetupInput"),
+  locationSetupIndustryInput: document.querySelector("#locationSetupIndustryInput"),
+  locationInput: document.querySelector("#locationInput"),
+  industryInput: document.querySelector("#industryInput"),
   backToSignupButton: document.querySelector("#backToSignupButton"),
   trackingLaunchTitle: document.querySelector("#trackingLaunchTitle"),
   trackingLaunchText: document.querySelector("#trackingLaunchText"),
@@ -205,8 +216,8 @@ async function restoreUserSession() {
 
   try {
     const { user } = await fetchJson("/api/auth/me");
-    state.user = user;
-    localStorage.setItem("gleoUser", JSON.stringify(user));
+    state.user = hydrateUserTrackingContext(user);
+    localStorage.setItem("gleoUser", JSON.stringify(state.user));
   } catch {
     localStorage.removeItem("gleoAuthToken");
     localStorage.removeItem("gleoUser");
@@ -266,9 +277,126 @@ function validateSignIn(data) {
   return "";
 }
 
+function getUserServiceLocation(user = state.user) {
+  if (!user?.id) return "";
+  return (
+    cleanText(user.serviceLocation || "") ||
+    cleanText(localStorage.getItem(`${SERVICE_LOCATION_STORAGE_PREFIX}${user.id}`) || "")
+  );
+}
+
+function setUserServiceLocation(userId, location) {
+  const normalized = titleCaseWords(String(location || "").replace(/\s+/g, " ").trim());
+  if (!userId || !normalized) return "";
+  localStorage.setItem(`${SERVICE_LOCATION_STORAGE_PREFIX}${userId}`, normalized);
+  if (state.user?.id === userId) state.user.serviceLocation = normalized;
+  return normalized;
+}
+
+function getUserServiceIndustry(user = state.user) {
+  if (!user?.id) return "";
+  return (
+    cleanText(user.serviceIndustry || "") ||
+    cleanText(localStorage.getItem(`${SERVICE_INDUSTRY_STORAGE_PREFIX}${user.id}`) || "")
+  );
+}
+
+function setUserServiceIndustry(userId, industry) {
+  const normalized = titleCaseWords(String(industry || "").replace(/\s+/g, " ").trim());
+  if (!userId || !normalized) return "";
+  localStorage.setItem(`${SERVICE_INDUSTRY_STORAGE_PREFIX}${userId}`, normalized);
+  if (state.user?.id === userId) state.user.serviceIndustry = normalized;
+  return normalized;
+}
+
+function needsLocationSetup(user = state.user) {
+  return Boolean(user?.id) && !getUserServiceLocation(user);
+}
+
+function needsIndustrySetup(user = state.user) {
+  return Boolean(user?.id) && !getUserServiceIndustry(user);
+}
+
+function needsTrackingSetup(user = state.user) {
+  return needsLocationSetup(user) || needsIndustrySetup(user);
+}
+
+function hydrateUserTrackingContext(user) {
+  if (!user?.id) return user;
+  const storedLocation = getUserServiceLocation(user);
+  const storedIndustry = getUserServiceIndustry(user);
+  if (storedLocation && !user.serviceLocation) user.serviceLocation = storedLocation;
+  if (storedIndustry && !user.serviceIndustry) user.serviceIndustry = storedIndustry;
+  return user;
+}
+
+function hydrateUserLocation(user) {
+  return hydrateUserTrackingContext(user);
+}
+
+async function saveUserTrackingContext({ location, industry } = {}) {
+  const normalizedLocation = location !== undefined ? setUserServiceLocation(state.user?.id, location) : getUserServiceLocation();
+  const normalizedIndustry = industry !== undefined ? setUserServiceIndustry(state.user?.id, industry) : getUserServiceIndustry();
+  if (!normalizedLocation) throw new Error("Enter a city or region where customers search for you.");
+  if (!normalizedIndustry) throw new Error("Enter the industry or business category you want tracked.");
+  try {
+    const result = await fetchJson("/api/workspace/location", {
+      method: "PATCH",
+      body: JSON.stringify({ location: normalizedLocation, industry: normalizedIndustry }),
+    });
+    if (result.user) {
+      state.user = hydrateUserTrackingContext(result.user);
+      localStorage.setItem("gleoUser", JSON.stringify(state.user));
+    }
+  } catch {
+    // Keep local copies if workspace columns are not migrated yet.
+  }
+  return { location: normalizedLocation, industry: normalizedIndustry };
+}
+
+async function saveUserServiceLocation(location) {
+  return saveUserTrackingContext({ location, industry: getUserServiceIndustry() });
+}
+
+function buildScanPayload(overrides = {}) {
+  return {
+    website: overrides.website || state.user?.website || els.websiteInput?.value.trim() || "",
+    businessName: overrides.businessName || state.user?.businessName || els.businessInput?.value.trim() || "",
+    location: overrides.location || getUserServiceLocation() || els.locationInput?.value.trim() || "",
+    industry: overrides.industry || getUserServiceIndustry() || els.industryInput?.value.trim() || "",
+    platforms: overrides.platforms || getConfiguredPlatformKeys(),
+  };
+}
+
+function cleanText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+async function continueAfterAuth() {
+  if (needsTrackingSetup()) {
+    renderUserProfile();
+    renderAll();
+    showLocationSetupPage();
+    return true;
+  }
+
+  const started = await maybeStartAutoScan({ background: true });
+  if (state.currentScan?.metrics?.completedAnswers) {
+    showAppShell(true);
+  } else if (started.started) {
+    showTrackingLaunchPage();
+  } else {
+    showAppShell(true);
+  }
+  state.pendingStart = null;
+  return true;
+}
+
 function validateBusinessDetails(data) {
   if (!data.businessName) return "Enter your business name.";
   if (!data.website) return "Enter your business website.";
+  if (!data.location) return "Enter the city or region where customers search for you.";
+  if (!data.industry) return "Enter the industry or business category you want tracked.";
   return "";
 }
 
@@ -284,10 +412,12 @@ async function completeSignup(data) {
       method: "POST",
       body: JSON.stringify(data),
     });
-    state.user = result.user;
+    state.user = hydrateUserTrackingContext(result.user);
+    if (data.location) setUserServiceLocation(result.user.id, data.location);
+    if (data.industry) setUserServiceIndustry(result.user.id, data.industry);
     localStorage.setItem("gleoAuthToken", result.token);
     localStorage.setItem("gleoLoggedIn", "true");
-    localStorage.setItem("gleoUser", JSON.stringify(result.user));
+    localStorage.setItem("gleoUser", JSON.stringify(state.user));
     localStorage.setItem("gleoLastLoginEmail", result.user.email);
   } catch (signupError) {
     if (signupError?.status === 409) {
@@ -312,16 +442,7 @@ async function completeSignup(data) {
   renderUserProfile();
   renderAll();
   setStatus(buildDashboardStatusMessage(), "ready");
-  const started = await maybeStartAutoScan({ background: true });
-  if (state.currentScan?.metrics?.completedAnswers) {
-    showAppShell(true);
-  } else if (started.started) {
-    showTrackingLaunchPage();
-  } else {
-    showAppShell(true);
-  }
-  state.pendingStart = null;
-  return true;
+  return continueAfterAuth();
 }
 
 function getStoredLoginEmail() {
@@ -349,10 +470,10 @@ async function completeLogin({ name, email, password }, options = {}) {
       method: "POST",
       body: JSON.stringify({ name: titleCaseWords(name), email, password }),
     });
-    state.user = result.user;
+    state.user = hydrateUserTrackingContext(result.user);
     localStorage.setItem("gleoAuthToken", result.token);
     localStorage.setItem("gleoLoggedIn", "true");
-    localStorage.setItem("gleoUser", JSON.stringify(result.user));
+    localStorage.setItem("gleoUser", JSON.stringify(state.user));
     localStorage.setItem("gleoLastLoginEmail", result.user.email);
   } catch (loginError) {
     showToast(loginError.message || "Could not sign you in.");
@@ -366,16 +487,7 @@ async function completeLogin({ name, email, password }, options = {}) {
   renderUserProfile();
   renderAll();
   setStatus(buildDashboardStatusMessage(), "ready");
-  const started = await maybeStartAutoScan({ background: true });
-  if (state.currentScan?.metrics?.completedAnswers) {
-    showAppShell(true);
-  } else if (started.started) {
-    showTrackingLaunchPage();
-  } else {
-    showAppShell(true);
-  }
-  state.pendingStart = null;
-  return true;
+  return continueAfterAuth();
 }
 
 function showForgotPasswordNotice() {
@@ -529,40 +641,51 @@ function stopTrackingLaunchProgress() {
     cancelAnimationFrame(state.trackingProgressRaf);
     state.trackingProgressRaf = null;
   }
+  if (state.trackingProgressTimer) {
+    window.clearTimeout(state.trackingProgressTimer);
+    state.trackingProgressTimer = null;
+  }
 }
 
 function setTrackingLaunchProgress(scale, opacity = 1) {
   if (!els.trackingLaunchProgressFill) return;
-  els.trackingLaunchProgressFill.style.transform = `scaleX(${scale})`;
+  els.trackingLaunchProgressFill.style.transform = `scaleX(${Math.max(0.08, scale)})`;
   els.trackingLaunchProgressFill.style.opacity = String(opacity);
 }
 
 function startTrackingLaunchProgress({ fromStart = false, complete = false } = {}) {
-  stopTrackingLaunchProgress();
   if (!els.trackingLaunchProgressFill) return;
 
   if (complete) {
+    stopTrackingLaunchProgress();
     setTrackingLaunchProgress(1, 1);
     return;
   }
 
+  if (state.trackingProgressTimer) return;
+
   if (fromStart || !state.trackingProgressStartedAt) {
+    stopTrackingLaunchProgress();
     state.trackingProgressStartedAt = Date.now();
+    setTrackingLaunchProgress(0.08, 0.85);
   }
 
   const startedAt = state.trackingProgressStartedAt;
   const maxScale = 0.94;
 
-  const tick = (now) => {
-    const elapsed = now - startedAt;
+  const tick = () => {
+    if (!els.trackingLaunchProgressFill || !startedAt) return;
+    const elapsed = Date.now() - startedAt;
     const t = Math.min(1, elapsed / TRACKING_PROGRESS_DURATION_MS);
     const eased = 1 - Math.pow(1 - t, 2.2);
-    setTrackingLaunchProgress(0.06 + eased * (maxScale - 0.06), 0.72 + eased * 0.28);
+    setTrackingLaunchProgress(0.08 + eased * (maxScale - 0.08), 0.72 + eased * 0.28);
     if (t < 1) {
-      state.trackingProgressRaf = requestAnimationFrame(tick);
+      state.trackingProgressTimer = window.setTimeout(tick, 250);
+    } else {
+      state.trackingProgressTimer = null;
     }
   };
-  state.trackingProgressRaf = requestAnimationFrame(tick);
+  tick();
 }
 
 function stopFirstScanPolling() {
@@ -627,6 +750,7 @@ function startFirstScanPolling({ resetAttempts = true } = {}) {
 
 async function resumeOrStartFirstScan() {
   if (!state.user || !state.config) return { started: false };
+  if (needsTrackingSetup()) return { started: false, needsTrackingSetup: true };
 
   const platforms = getConfiguredPlatformKeys();
   if (!platforms.length) {
@@ -654,20 +778,12 @@ async function resumeOrStartFirstScan() {
     }
   }
 
-  const pendingAt = Number(localStorage.getItem(FIRST_SCAN_PENDING_AT_KEY) || 0);
-  const pendingAge = pendingAt ? Date.now() - pendingAt : Infinity;
-
-  if (!state.isScanning && pendingAge > FIRST_SCAN_RESUME_GRACE_MS) {
+  // No scan row on the server yet — polling cannot help. Re-POST unless this tab
+  // already has an in-flight request (e.g. user refreshed mid-scan).
+  if (!state.isScanning) {
     state.autoScanRequestedFor = state.user.id;
     markPendingFirstScan(state.user.id);
-    void runScanRequest(
-      {
-        website: state.user.website,
-        businessName: state.user.businessName,
-        platforms,
-      },
-      { auto: true },
-    );
+    void runScanRequest(buildScanPayload(), { auto: true });
     return { started: true, background: true, restarted: true };
   }
 
@@ -1009,7 +1125,9 @@ function applyPublicSignupState() {
 
 function bindLanding() {
   const isLoggedIn = Boolean(localStorage.getItem("gleoAuthToken") && state.user);
-  if (isLoggedIn && isAwaitingFirstScan(state.user)) {
+  if (isLoggedIn && needsTrackingSetup()) {
+    showLocationSetupPage();
+  } else if (isLoggedIn && isAwaitingFirstScan(state.user)) {
     showTrackingLaunchPage();
   } else {
     showAppShell(isLoggedIn);
@@ -1094,6 +1212,8 @@ function bindLanding() {
     const businessDetails = {
       businessName: titleCaseWords(els.businessSetupNameInput?.value.trim() || ""),
       website: normalizeWebsiteInput(els.businessSetupWebsiteInput?.value.trim() || ""),
+      location: titleCaseWords(els.businessSetupLocationInput?.value.trim() || ""),
+      industry: titleCaseWords(els.businessSetupIndustryInput?.value.trim() || ""),
     };
     const error = validateBusinessDetails(businessDetails);
     if (error) {
@@ -1109,6 +1229,20 @@ function bindLanding() {
       ...state.pendingSignupUser,
       ...businessDetails,
     });
+  });
+
+  els.locationSetupForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await saveUserTrackingContext({
+        location: els.locationSetupInput?.value.trim() || "",
+        industry: els.locationSetupIndustryInput?.value.trim() || "",
+      });
+    } catch (trackingError) {
+      showToast(trackingError.message || "Enter your location and industry.");
+      return;
+    }
+    await continueAfterAuth();
   });
 
   els.backToSignupButton?.addEventListener("click", () => {
@@ -1168,6 +1302,7 @@ function showLoginPage() {
   els.landingPage?.classList.add("hidden");
   els.appShell?.classList.add("hidden");
   els.businessSetupPage?.classList.add("hidden");
+  els.locationSetupPage?.classList.add("hidden");
   els.trackingLaunchPage?.classList.add("hidden");
   els.signInPage?.classList.add("hidden");
   els.loginPage?.classList.remove("hidden");
@@ -1178,6 +1313,7 @@ function showSignInPage() {
   els.landingPage?.classList.add("hidden");
   els.appShell?.classList.add("hidden");
   els.businessSetupPage?.classList.add("hidden");
+  els.locationSetupPage?.classList.add("hidden");
   els.trackingLaunchPage?.classList.add("hidden");
   els.loginPage?.classList.add("hidden");
   els.signInPage?.classList.remove("hidden");
@@ -1188,6 +1324,7 @@ function showBusinessSetupPage() {
   els.appShell?.classList.add("hidden");
   els.loginPage?.classList.add("hidden");
   els.signInPage?.classList.add("hidden");
+  els.locationSetupPage?.classList.add("hidden");
   els.trackingLaunchPage?.classList.add("hidden");
   els.businessSetupPage?.classList.remove("hidden");
   if (els.businessSetupIntro && state.pendingSignupUser) {
@@ -1198,6 +1335,27 @@ function showBusinessSetupPage() {
     if (els.businessSetupWebsiteInput) els.businessSetupWebsiteInput.value = state.pendingStart.website || "";
   }
   els.businessSetupNameInput?.focus();
+}
+
+function showLocationSetupPage() {
+  const businessName = state.user?.businessName || "your business";
+  els.landingPage?.classList.add("hidden");
+  els.appShell?.classList.add("hidden");
+  els.loginPage?.classList.add("hidden");
+  els.signInPage?.classList.add("hidden");
+  els.businessSetupPage?.classList.add("hidden");
+  els.trackingLaunchPage?.classList.add("hidden");
+  els.locationSetupPage?.classList.remove("hidden");
+  if (els.locationSetupIntro) {
+    els.locationSetupIntro.textContent = `Add the location and industry you want tracked for ${businessName}. We still scan your website for services and proof, but these fields drive the AI prompts.`;
+  }
+  if (els.locationSetupInput) {
+    els.locationSetupInput.value = getUserServiceLocation() || "";
+  }
+  if (els.locationSetupIndustryInput) {
+    els.locationSetupIndustryInput.value = getUserServiceIndustry() || "";
+  }
+  els.locationSetupInput?.focus();
 }
 
 function showTrackingLaunchPage() {
@@ -1214,6 +1372,7 @@ function showTrackingLaunchPage() {
   els.loginPage?.classList.add("hidden");
   els.signInPage?.classList.add("hidden");
   els.businessSetupPage?.classList.add("hidden");
+  els.locationSetupPage?.classList.add("hidden");
   els.trackingLaunchPage?.classList.remove("hidden");
   if (els.premiumLaunchBadge) {
     els.premiumLaunchBadge.hidden = !isPremium;
@@ -1256,7 +1415,7 @@ function showTrackingLaunchPage() {
   if (hasCompletedScan) {
     startTrackingLaunchProgress({ complete: true });
   } else if (isWaitingForResults) {
-    startTrackingLaunchProgress();
+    startTrackingLaunchProgress({ fromStart: !state.trackingProgressStartedAt });
   } else {
     stopTrackingLaunchProgress();
     setTrackingLaunchProgress(needsRetry ? 0.35 : 0.06, 0.7);
@@ -1269,6 +1428,7 @@ function showAppShell(isVisible) {
   els.loginPage?.classList.add("hidden");
   els.signInPage?.classList.add("hidden");
   els.businessSetupPage?.classList.add("hidden");
+  els.locationSetupPage?.classList.add("hidden");
   els.trackingLaunchPage?.classList.add("hidden");
   if (!isVisible) {
     state.setupForcedOpen = false;
@@ -1280,6 +1440,8 @@ function applyPendingStart() {
   if (!state.pendingStart || !state.user) return;
   if (els.websiteInput) els.websiteInput.value = state.pendingStart.website || state.user.website || "";
   if (els.businessInput) els.businessInput.value = state.pendingStart.businessName || state.user.businessName || "";
+  if (els.locationInput) els.locationInput.value = getUserServiceLocation() || "";
+  if (els.industryInput) els.industryInput.value = getUserServiceIndustry() || "";
 }
 
 function bindNavigation() {
@@ -1336,8 +1498,12 @@ function bindScan() {
     }
 
     await runScanRequest({
-      website: els.websiteInput.value.trim(),
-      businessName: els.businessInput.value.trim(),
+      ...buildScanPayload({
+        website: els.websiteInput.value.trim(),
+        businessName: els.businessInput.value.trim(),
+        location: els.locationInput?.value.trim() || "",
+        industry: els.industryInput?.value.trim() || "",
+      }),
       platforms,
     });
   });
@@ -1351,6 +1517,7 @@ function getConfiguredPlatformKeys() {
 
 async function maybeStartAutoScan({ background = false } = {}) {
   if (!state.user || !state.config || state.isScanning || state.setupForcedOpen) return { started: false };
+  if (needsTrackingSetup()) return { started: false, needsTrackingSetup: true };
   if (state.currentScan?.metrics?.completedAnswers) return { started: false };
   if (state.autoScanRequestedFor === state.user.id && state.isScanning) return { started: false };
 
@@ -1367,14 +1534,7 @@ async function maybeStartAutoScan({ background = false } = {}) {
     return { started: false };
   }
   state.autoScanRequestedFor = state.user.id;
-  const scanTask = runScanRequest(
-    {
-      website: state.user.website,
-      businessName: state.user.businessName,
-      platforms,
-    },
-    { auto: true },
-  );
+  const scanTask = runScanRequest(buildScanPayload({ platforms }), { auto: true });
   if (background) {
     void scanTask;
     return { started: true, background: true };
@@ -1383,6 +1543,22 @@ async function maybeStartAutoScan({ background = false } = {}) {
 }
 
 async function runScanRequest(payload, { auto = false } = {}) {
+  const requestPayload = {
+    ...buildScanPayload(payload),
+    platforms: payload.platforms || getConfiguredPlatformKeys(),
+  };
+  if (!requestPayload.location || !requestPayload.industry) {
+    const message = !requestPayload.location
+      ? "Enter your business location before running a scan."
+      : "Enter your business industry before running a scan.";
+    setStatus(message, "error");
+    if (auto) showLocationSetupPage();
+    else showToast(message);
+    return { ok: false, needsTrackingSetup: true };
+  }
+  if (requestPayload.location) setUserServiceLocation(state.user?.id, requestPayload.location);
+  if (requestPayload.industry) setUserServiceIndustry(state.user?.id, requestPayload.industry);
+
   setScanning(true, auto);
   if (auto && state.user) {
     state.autoScanRequestedFor = state.user.id;
@@ -1395,7 +1571,7 @@ async function runScanRequest(payload, { auto = false } = {}) {
     const response = await fetch(apiUrl("/api/scan"), {
       method: "POST",
       headers: authJsonHeaders(),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestPayload),
       signal: controller.signal,
     });
     window.clearTimeout(timeoutId);
@@ -1415,6 +1591,13 @@ async function runScanRequest(payload, { auto = false } = {}) {
       setStatus(authMessage, "error");
       if (!auto) showToast(authMessage);
       return { ok: false, error };
+    }
+
+    if (error?.status === 400 && /location|industry/i.test(error.message || "")) {
+      clearPendingFirstScanState();
+      setStatus(error.message, "error");
+      showLocationSetupPage();
+      return { ok: false, error, needsTrackingSetup: true };
     }
 
     if (auto && state.user) state.autoScanRequestedFor = "";
@@ -1514,6 +1697,12 @@ async function loadInitialData() {
 
   renderConfig();
   renderAll();
+
+  if (state.user && needsTrackingSetup()) {
+    showLocationSetupPage();
+    return;
+  }
+
   const expiredStalePending = expireStalePendingFirstScan();
   const pendingFirstScanUserId = getPendingFirstScanUserId();
   if (pendingFirstScanUserId && pendingFirstScanUserId === state.user?.id && !state.currentScan?.metrics?.completedAnswers) {
@@ -1536,7 +1725,7 @@ async function loadInitialData() {
   if (state.currentScan?.metrics?.completedAnswers) {
     setStatus(buildDashboardStatusMessage(), "ready");
   } else if (!Object.values(state.config.providers).some((provider) => provider.configured)) {
-    setStatus("Enter the website, business name, and location, then start the scan.", "working");
+    setStatus("Enter the website, business name, location, and industry, then start the scan.", "working");
   }
 }
 
@@ -1616,7 +1805,7 @@ function renderOverview() {
         els.emptyStateText.textContent = `We are still calculating ${state.user?.businessName || "your business"}'s first score. Stay on the tracking started page for the cleanest handoff into the dashboard.`;
       } else if (!scan) {
         els.emptyStateTitle.textContent = "No scan results yet";
-        els.emptyStateText.textContent = "Start with the business name and website. Gleo will infer location and service areas from the site, then populate the dashboard with real scan output.";
+        els.emptyStateText.textContent = "Start with the business name, website, location, and industry. Gleo scans your site for services and proof, then checks what AI recommends in your area.";
       } else if (state.isScanning) {
         els.emptyStateTitle.textContent = "Your first scan is in progress";
         els.emptyStateText.textContent = `We are still calculating ${scan.businessName || "your business"}'s first score. The dashboard will fill in as soon as completed AI answers come back.`;
@@ -2948,7 +3137,7 @@ function setScanning(isScanning, auto = false) {
       els.statusStrip.hidden = false;
       els.statusText.textContent = auto
         ? "We are doing your scan now. This can take a few minutes."
-        : "Scanning the site, inferring location, generating prompts, and checking AI answers. This can take a few minutes.";
+        : "Scanning the site, using your location and industry for prompts, and checking AI answers. This can take a few minutes.";
       els.statusStrip.classList.remove("ready", "error");
     }
     clearTimeout(state.longScanTimer);

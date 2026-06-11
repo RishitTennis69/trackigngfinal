@@ -237,9 +237,42 @@
               <span>Business Website</span>
               <input id="businessSetupWebsiteInput" type="url" placeholder="https://yourbusiness.com" autocomplete="url" required />
             </label>
+            <label>
+              <span>Primary Location</span>
+              <input id="businessSetupLocationInput" type="text" placeholder="Palo Alto, CA" autocomplete="address-level2" required />
+            </label>
+            <label>
+              <span>Industry / Category</span>
+              <input id="businessSetupIndustryInput" type="text" placeholder="Internal Medicine Physician" autocomplete="organization-title" required />
+            </label>
+            <p class="form-help-copy">We still scan your website for services and proof, but your location and industry drive the AI prompts.</p>
             <button class="secondary-login-button" type="submit" id="businessSetupSubmitButton">Continue to Dashboard</button>
           </form>
           <button class="text-button" type="button" id="backToSignupButton">Back to sign up</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="login-page hidden" id="locationSetupPage">
+      <div class="login-shell">
+        <div class="login-card">
+          <div>
+            <p class="eyebrow">Tracking setup</p>
+            <h1>Tell us what to track</h1>
+            <p id="locationSetupIntro">Add the location and industry you want in AI search results. We still scan your website for services and proof.</p>
+          </div>
+          <form class="email-login-form" id="locationSetupForm">
+            <label>
+              <span>Primary Location</span>
+              <input id="locationSetupInput" type="text" placeholder="Palo Alto, CA" autocomplete="address-level2" required />
+            </label>
+            <label>
+              <span>Industry / Category</span>
+              <input id="locationSetupIndustryInput" type="text" placeholder="Internal Medicine Physician" autocomplete="organization-title" required />
+            </label>
+            <p class="form-help-copy">Examples: Cosmetic Dentist · Hindu Temple · Internal Medicine Physician · Family Law Firm</p>
+            <button class="secondary-login-button" type="submit" id="locationSetupSubmitButton">Start Tracking</button>
+          </form>
         </div>
       </div>
     </section>
@@ -350,7 +383,7 @@
             <div>
               <p class="eyebrow">Tracking setup</p>
               <h2>Start with your website, then we build the AI visibility scan.</h2>
-              <p>We infer location and service areas from the site instead of asking users to type them in.</p>
+              <p>Enter your website, business name, location, and industry, then start the scan.</p>
             </div>
           </div>
           <div class="scan-progress-card hidden" id="scanProgressCard" role="status" aria-live="polite">
@@ -375,6 +408,22 @@
               <span class="field">
                 <span>Business</span>
                 <input id="businessInput" name="businessName" type="text" placeholder="Business name" />
+              </span>
+            </label>
+
+            <label class="workflow-step">
+              <span class="step-number">3</span>
+              <span class="field">
+                <span>Location</span>
+                <input id="locationInput" name="location" type="text" placeholder="Palo Alto, CA" autocomplete="address-level2" required />
+              </span>
+            </label>
+
+            <label class="workflow-step">
+              <span class="step-number">4</span>
+              <span class="field">
+                <span>Industry</span>
+                <input id="industryInput" name="industry" type="text" placeholder="Internal Medicine Physician" autocomplete="organization-title" required />
               </span>
             </label>
 
@@ -536,7 +585,7 @@ OPENROUTER_API_KEY=...
 
         <section class="empty-state" id="emptyState">
           <h2 id="emptyStateTitle">No scan results yet</h2>
-          <p id="emptyStateText">Start with the business name and website. Gleo will infer location and service areas from the site, then populate the dashboard with real scan output.</p>
+          <p id="emptyStateText">Start with the business name, website, and primary location. Gleo scans your site for services and proof, then checks what AI recommends in your area.</p>
         </section>
       </main>
     </div>

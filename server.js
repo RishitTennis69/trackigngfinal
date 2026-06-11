@@ -174,11 +174,36 @@ const server = http.createServer(async (request, response) => {
       return sendJson(response, { scan: scans.at(-1) || null }, 200, corsHeaders);
     }
 
+    if (url.pathname === "/api/workspace/location" && request.method === "PATCH") {
+      const user = await getAuthenticatedUser(request);
+      if (!user) return sendJson(response, { error: "Sign in before updating your tracking details." }, 401, corsHeaders);
+      const payload = await readJsonBody(request);
+      const location = payload.location !== undefined ? normalizeServiceLocation(payload.location) : user.serviceLocation || "";
+      const industry = payload.industry !== undefined ? normalizeServiceIndustry(payload.industry) : user.serviceIndustry || "";
+      if (payload.location !== undefined && !location) {
+        return sendJson(response, { error: "Enter a city or region where customers search for you." }, 400, corsHeaders);
+      }
+      if (payload.industry !== undefined && !industry) {
+        return sendJson(response, { error: "Enter the industry or business category you want tracked." }, 400, corsHeaders);
+      }
+      await saveUserWorkspaceContext(user.id, { location, industry });
+      const updatedUser = USE_SHARED_SUPABASE ? await readSharedUserById(user.id) : { ...user, serviceLocation: location, serviceIndustry: industry };
+      return sendJson(response, { ok: true, user: publicUser(updatedUser) }, 200, corsHeaders);
+    }
+
     if (url.pathname === "/api/scan" && request.method === "POST") {
       const user = await getAuthenticatedUser(request);
       if (!user) return sendJson(response, { error: "Sign in before running a scan." }, 401, corsHeaders);
       await ensureUserHasAccess(user);
       const payload = await readJsonBody(request);
+      payload.location = normalizeServiceLocation(payload.location || user.serviceLocation || "");
+      payload.industry = normalizeServiceIndustry(payload.industry || user.serviceIndustry || "");
+      if (!payload.location) {
+        return sendJson(response, { error: "Enter your business location before running a scan." }, 400, corsHeaders);
+      }
+      if (!payload.industry) {
+        return sendJson(response, { error: "Enter your business industry before running a scan." }, 400, corsHeaders);
+      }
       const scans = await readScans(user.id);
       const scan = await runScan(payload, scans);
       await appendScanForUser(user.id, scan);
@@ -312,13 +337,32 @@ async function runScan(payload, previousScans = []) {
   const website = normalizeUrl(payload.website);
   const selectedPlatforms = normalizePlatforms(payload.platforms);
   const businessName = cleanText(payload.businessName || "") || inferNameFromUrl(website);
-  const submittedLocation = cleanText(payload.location || "");
+  const submittedLocation = normalizeServiceLocation(payload.location || "");
+  const submittedIndustry = normalizeServiceIndustry(payload.industry || "");
+  if (!submittedLocation) {
+    throw new Error("Enter your business location before running a scan.");
+  }
+  if (!submittedIndustry) {
+    throw new Error("Enter your business industry before running a scan.");
+  }
   const configuredPlatforms = selectedPlatforms.filter((platform) => isProviderConfigured(platform));
   const startedAt = new Date().toISOString();
   const crawledSite = await crawlSite(website);
-  const site = await enrichSiteWithAIProfile({ site: crawledSite, businessName, location: submittedLocation || "United States" });
-  const location = submittedLocation || firstMeaningfulArea(site.searchAreas) || site.detectedLocations?.[0] || "United States";
-  site.searchAreas = buildSearchAreas(location, [...(site.searchAreas || []), ...(site.detectedLocations || [])]);
+  const userVertical = buildVerticalFromIndustry(submittedIndustry);
+  const preparedSite = {
+    ...crawledSite,
+    vertical: userVertical,
+    services: mergeIndustryServices(crawledSite, userVertical),
+    detectedLocations: filterDetectedLocations(crawledSite.detectedLocations, submittedLocation),
+  };
+  const site = await enrichSiteWithAIProfile({
+    site: preparedSite,
+    businessName,
+    location: submittedLocation,
+    industry: submittedIndustry,
+  });
+  const location = submittedLocation;
+  site.searchAreas = buildSearchAreas(location, []);
   const prompts = buildPromptSet({ site, businessName, location }).slice(0, MAX_SCAN_PROMPTS);
   const promptStrategy = buildPromptStrategy({ site, prompts, businessName, location });
 
@@ -392,6 +436,7 @@ async function runScan(payload, previousScans = []) {
     hostname: new URL(website).hostname,
     businessName,
     location,
+    industry: submittedIndustry,
     requestedPlatforms: selectedPlatforms,
     configuredPlatforms,
     missingPlatforms: selectedPlatforms.filter((platform) => !isProviderConfigured(platform)),
@@ -580,10 +625,12 @@ function linkScore(url) {
   return score - lower.length / 100;
 }
 
-async function enrichSiteWithAIProfile({ site, businessName, location }) {
+async function enrichSiteWithAIProfile({ site, businessName, location, industry = "" }) {
   const searchAreas = buildSearchAreas(location, site.detectedLocations);
+  const lockedVertical = industry ? buildVerticalFromIndustry(industry) : site.vertical;
   const fallback = {
     ...site,
+    vertical: lockedVertical,
     searchAreas,
     aiProfile: null,
     aiPromptGroups: null,
@@ -606,6 +653,9 @@ async function enrichSiteWithAIProfile({ site, businessName, location }) {
     "Return JSON only. Do not wrap it in markdown.",
     "Infer the actual business category from the page content. Do not rely on a fixed vertical list.",
     "Create realistic customer prompts for AI visibility checks. Prompts must match the business, not a prior example.",
+    "Use ONLY the submittedLocation for geographic prompts. Do not substitute a different city or region detected on the website.",
+    "Use ONLY the submittedIndustry for the business category label and prompt framing. Do not substitute template categories like sports foundation, dentist, or CRM platform unless they match submittedIndustry.",
+    "Use the crawled website to refine services, proof points, and customer intents, but never replace submittedIndustry with a different category.",
     "Use a mix of the exact city, nearby cities/service areas, and broader regional wording when it makes sense.",
     "Each prompt group should contain three prompts that test the same user intent with local/regional wording variation.",
   ].join(" ");
@@ -613,9 +663,10 @@ async function enrichSiteWithAIProfile({ site, businessName, location }) {
   const userPrompt = {
     businessName,
     submittedLocation: location,
+    submittedIndustry: industry || lockedVertical.label,
     suggestedSearchAreas: searchAreas,
     heuristicProfile: {
-      vertical: site.vertical,
+      vertical: lockedVertical,
       services: site.services,
       keywords: site.keywords.slice(0, 12),
       detectedLocations: site.detectedLocations,
@@ -655,7 +706,12 @@ async function enrichSiteWithAIProfile({ site, businessName, location }) {
       { Authorization: `Bearer ${process.env[PROVIDERS.openai.keyName]}` },
     );
     const profile = parseJsonObject(extractOpenAIText(data));
-    const vertical = normalizeAIVertical(profile?.vertical, site.vertical);
+    const vertical = industry
+      ? {
+          ...normalizeAIVertical(profile?.vertical, lockedVertical),
+          label: lockedVertical.label,
+        }
+      : normalizeAIVertical(profile?.vertical, site.vertical);
     const services = normalizeAIList(profile?.services, site.services).slice(0, 6);
     const aiSearchAreas = normalizeAIList(profile?.searchAreas, searchAreas);
     const mergedSearchAreas = buildSearchAreas(location, [...aiSearchAreas, ...site.detectedLocations]);
@@ -1428,12 +1484,95 @@ function inferPromptLocation(prompt, searchAreas = [], fallback = "") {
   return searchAreas.find((area) => text.includes(normalized(area))) || fallback;
 }
 
+function normalizeServiceLocation(value) {
+  const text = cleanText(value || "");
+  if (!text || text.length < 2) return "";
+  return titleCaseWords(text);
+}
+
+function filterDetectedLocations(detectedLocations = [], submittedLocation = "") {
+  const submitted = normalized(submittedLocation);
+  return (detectedLocations || [])
+    .map(cleanText)
+    .filter(Boolean)
+    .filter((entry) => {
+      const value = normalized(entry);
+      if (!value || /^(united states|usa)$/i.test(entry)) return false;
+      if (!submitted) return true;
+      return value.includes(submitted.split(",")[0]?.trim().toLowerCase() || submitted) || submitted.includes(value.split(",")[0] || value);
+    });
+}
+
+function normalizeServiceIndustry(value) {
+  const text = cleanText(value || "");
+  if (!text || text.length < 2) return "";
+  return titleCaseWords(text);
+}
+
+function buildVerticalFromIndustry(industry) {
+  const label = normalizeServiceIndustry(industry);
+  const lower = label.toLowerCase();
+  const urgent = /\b(dentist|dental|plumb|hvac|urgent|emergency|physician|doctor|medical|clinic|hospital|repair|locksmith)\b/.test(lower);
+  const customer = /\b(temple|church|mosque|synagogue|devotee|worship)\b/.test(lower)
+    ? "devotees and families"
+    : /\b(law|attorney|legal)\b/.test(lower)
+      ? "clients"
+      : /\b(restaurant|dining|cafe|food)\b/.test(lower)
+        ? "diners"
+        : /\b(doctor|physician|clinic|medical|dentist|patient|md)\b/.test(lower)
+          ? "patients"
+          : "customers";
+  return {
+    label,
+    specialty: label,
+    customer,
+    urgent,
+    priceLanguage: `cost of ${label.toLowerCase()} near me`,
+  };
+}
+
+function mergeIndustryServices(site, vertical) {
+  const crawledServices = inferServices(
+    site.pages.map((page) => `${page.title} ${page.description} ${page.headings.join(" ")} ${page.text}`).join(" "),
+    vertical,
+  );
+  return [...new Set([vertical.label, vertical.specialty, ...crawledServices, ...(site.services || [])].map(cleanText).filter(Boolean))].slice(0, 6);
+}
+
+async function saveUserWorkspaceContext(userId, { location = "", industry = "" } = {}) {
+  if (!userId) return { location: "", industry: "" };
+  const normalizedLocation = location ? normalizeServiceLocation(location) : "";
+  const normalizedIndustry = industry ? normalizeServiceIndustry(industry) : "";
+  if (USE_SHARED_SUPABASE) {
+    try {
+      await supabaseUpsert(
+        "workspaces",
+        {
+          user_id: userId,
+          ...(normalizedLocation ? { service_location: normalizedLocation } : {}),
+          ...(normalizedIndustry ? { service_industry: normalizedIndustry } : {}),
+          updated_at: new Date().toISOString(),
+        },
+        "user_id",
+      );
+    } catch {
+      // Columns may not exist until scripts/add-workspace-tracking-fields.sql is applied.
+    }
+  }
+  return { location: normalizedLocation, industry: normalizedIndustry };
+}
+
+async function saveUserServiceLocation(userId, location) {
+  const result = await saveUserWorkspaceContext(userId, { location });
+  return result.location;
+}
+
 function buildSearchAreas(location, detectedLocations = []) {
   const seed = [location, ...detectedLocations].map(cleanText).filter(Boolean);
   const city = cleanText(location.split(",")[0] || location);
   const state = cleanText(location.split(",")[1] || "");
   const lowerCity = city.toLowerCase();
-  const areas = [...seed];
+  const areas = [...seed, `near ${city}`];
 
   const bayAreaCities = new Set([
     "sunnyvale",
@@ -1466,8 +1605,23 @@ function buildSearchAreas(location, detectedLocations = []) {
     areas.push(...(nearbyMap[lowerCity] || ["South Bay", "Bay Area"]));
   }
 
-  if (!areas.some((area) => /area|county|region|valley|peninsula/i.test(area))) {
-    areas.push(state ? `${state} Area` : "Nearby Area");
+  const nycCities = new Set(["new york", "manhattan", "brooklyn", "queens", "bronx", "staten island"]);
+  if (state.toLowerCase().includes("ny") && (nycCities.has(lowerCity) || /new york/i.test(location))) {
+    areas.push("New York City", "NYC Area", "Manhattan, NY", "Brooklyn, NY", "Tri-State Area");
+  }
+
+  const laCities = new Set(["los angeles", "santa monica", "beverly hills", "pasadena", "burbank", "glendale"]);
+  if (state.toLowerCase().includes("ca") && laCities.has(lowerCity)) {
+    areas.push("Los Angeles Area", "Southern California", "Greater Los Angeles");
+  }
+
+  const chicagoCities = new Set(["chicago", "evanston", "oak park", "naperville"]);
+  if ((state.toLowerCase().includes("il") || /illinois/i.test(location)) && chicagoCities.has(lowerCity)) {
+    areas.push("Chicago Area", "Chicagoland", "Greater Chicago");
+  }
+
+  if (!areas.some((area) => /area|county|region|valley|peninsula|near /i.test(area))) {
+    areas.push(state ? `${state} Area` : `${city} Area`);
   }
 
   return [...new Set(areas.map(cleanText).filter(Boolean))].slice(0, 8);
@@ -1587,7 +1741,7 @@ function inferVertical(text, url) {
     { label: "med spa", specialty: "botox", customer: "clients", urgent: false, terms: ["med spa", "botox", "filler", "aesthetic"] },
     { label: "restaurant", specialty: "private dining", customer: "diners", urgent: false, terms: ["restaurant", "menu", "reservation", "dining"] },
     { label: "Hindu temple", specialty: "pooja services", customer: "devotees and families", urgent: false, priceLanguage: "donation and service information for Hindu temple near me", terms: ["hindu temple", "temple", "pooja", "puja", "aarthi", "darshan", "panchangam", "devotees", "religious", "spiritual"] },
-    { label: "sports foundation", specialty: "youth sports programs", customer: "families and athletes", urgent: false, terms: ["sports foundation", "sports", "athletes", "youth program", "training", "camp"] },
+    { label: "sports foundation", specialty: "youth sports programs", customer: "families and athletes", urgent: false, terms: ["sports foundation", "youth sports program", "youth sports programs", "athlete development program"] },
     { label: "fitness studio", specialty: "personal training", customer: "members", urgent: false, terms: ["fitness", "personal training", "gym", "workout", "pilates", "yoga"] },
     { label: "CRM platform", specialty: "sales lead tracking", customer: "small businesses", urgent: false, terms: ["crm", "sales leads", "pipeline", "software"] },
   ];
@@ -1599,8 +1753,10 @@ function inferVertical(text, url) {
     }))
     .sort((a, b) => b.score - a.score)[0];
 
-  if (!match?.score) return { label: inferGenericVertical(lower), specialty: "service", customer: "customers", urgent: false, terms: [] };
-  if (match.label === "sports foundation" && match.score < 2 && /\btemple|pooja|puja|aarthi|darshan|devotee|hindu\b/.test(lower)) {
+  if (!match?.score || match.score < 2) {
+    return { label: inferGenericVertical(lower), specialty: "service", customer: "customers", urgent: false, terms: [] };
+  }
+  if (match.label === "sports foundation" && match.score < 3 && /\btemple|pooja|puja|aarthi|darshan|devotee|hindu\b/.test(lower)) {
     return verticals.find((vertical) => vertical.label === "Hindu temple");
   }
   return match;
@@ -1632,7 +1788,7 @@ function inferServices(text, vertical) {
 
 function inferGenericVertical(lowerText) {
   const titlePatterns = [
-    /\b([a-z]+(?:\s+[a-z]+){0,2})\s+(clinic|studio|foundation|center|centre|practice|agency|company|platform|school)\b/,
+    /\b([a-z]+(?:\s+[a-z]+){0,3})\s+(clinic|studio|practice|agency|company|platform|school|md|physician|doctor|law firm|restaurant|salon|spa)\b/,
     /\b([a-z]+(?:\s+[a-z]+){0,2})\s+(services|programs|training|therapy|care)\b/,
   ];
   for (const pattern of titlePatterns) {
@@ -2134,6 +2290,8 @@ function mergeSharedUser(profile, workspace, credential, entitlement) {
     passwordHash: credential?.password_hash || "",
     businessName: workspace?.business_name || "",
     website: workspace?.website || "",
+    serviceLocation: workspace?.service_location || "",
+    serviceIndustry: workspace?.service_industry || "",
     cmsPlatform: workspace?.cms_platform || "",
     implementationMode: workspace?.implementation_mode || "",
     implementationStatus: workspace?.implementation_status || "",
@@ -2289,6 +2447,8 @@ function publicUser(user) {
     email: user.email,
     businessName: user.businessName,
     website: user.website,
+    serviceLocation: user.serviceLocation || "",
+    serviceIndustry: user.serviceIndustry || "",
     trialEndsAt: user.trialEndsAt || null,
     entitlementStatus: user.entitlementStatus || "",
     entitlementPlan: user.entitlementPlan || "",
@@ -2382,6 +2542,8 @@ async function createUser(payload) {
       user_id: userId,
       business_name: titleCaseWords(payload.businessName),
       website,
+      ...(normalizeServiceLocation(payload.location || "") ? { service_location: normalizeServiceLocation(payload.location || "") } : {}),
+      ...(normalizeServiceIndustry(payload.industry || "") ? { service_industry: normalizeServiceIndustry(payload.industry || "") } : {}),
       created_at: existingProfile?.created_at || existingUser?.createdAt || now,
       updated_at: now,
     }, "user_id");
@@ -2410,6 +2572,8 @@ async function createUser(payload) {
     passwordHash: hashPassword(String(payload.password || "")),
     businessName: titleCaseWords(payload.businessName),
     website,
+    serviceLocation: normalizeServiceLocation(payload.location || ""),
+    serviceIndustry: normalizeServiceIndustry(payload.industry || ""),
     createdAt: now,
     updatedAt: now,
   };

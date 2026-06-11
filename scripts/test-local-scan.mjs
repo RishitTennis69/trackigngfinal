@@ -124,6 +124,8 @@ console.log("User login: OK");
 const scanPayload = {
   businessName: testUser.businessName,
   website: testUser.website,
+  location: "Palo Alto, CA",
+  industry: "Dental Practice",
   platforms: configured,
 };
 
