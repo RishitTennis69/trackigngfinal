@@ -135,16 +135,19 @@
 .lv-hero-video .landing-start-card {
   display: grid;
   gap: 0;
-  max-width: 18rem;
+  justify-items: start;
+  max-width: none;
   padding: 0;
   background: transparent;
   border: 0;
   box-shadow: none;
 }
 
-.lv-hero-video .landing-start-card .primary-button {
-  width: 100%;
-  min-height: 48px;
+.lv-hero-video .hero-sign-in-button {
+  min-height: 53px;
+  padding: 0 22px;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .lv-hero-video .hero-reveal {
