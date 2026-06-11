@@ -73,13 +73,13 @@
   z-index: 1;
   background: linear-gradient(
     to right,
-    #ffffff 0%,
-    #ffffff 22%,
-    rgba(255, 255, 255, 0.92) 32%,
-    rgba(255, 255, 255, 0.72) 42%,
-    rgba(255, 255, 255, 0.45) 52%,
-    rgba(255, 255, 255, 0.18) 62%,
-    rgba(255, 255, 255, 0) 68%
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(255, 255, 255, 0.9) 18%,
+    rgba(255, 255, 255, 0.78) 30%,
+    rgba(255, 255, 255, 0.56) 42%,
+    rgba(255, 255, 255, 0.32) 54%,
+    rgba(255, 255, 255, 0.12) 66%,
+    rgba(255, 255, 255, 0) 75%
   );
   pointer-events: none;
 }
@@ -111,7 +111,7 @@
 .lv-hero-video .landing-headline-line {
   display: block;
   font-family: "Newsreader", Georgia, serif;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: -0.03em;
   color: var(--ink);
 }
@@ -134,23 +134,17 @@
 
 .lv-hero-video .landing-start-card {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  max-width: 100%;
-  padding: 16px;
-  background: #ffffff;
-  border-color: var(--blue-border);
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
-}
-
-.lv-hero-video .landing-start-card label {
+  gap: 0;
+  max-width: 18rem;
   padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .lv-hero-video .landing-start-card .primary-button {
   width: 100%;
   min-height: 48px;
-  margin-top: 2px;
 }
 
 .lv-hero-video .hero-reveal {

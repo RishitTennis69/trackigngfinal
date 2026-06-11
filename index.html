@@ -23,7 +23,6 @@
         </div>
         <div class="landing-nav-actions">
           <button class="landing-sign-in" type="button" data-signin-open>Sign In</button>
-          <button class="landing-login signup-only" type="button" data-login-open>Sign Up</button>
         </div>
       </nav>
 
@@ -42,17 +41,9 @@
                 <span class="landing-headline-line landing-headline-accent hero-reveal hero-delay-headline-2">of AI search.</span>
               </h1>
               <p class="landing-lede hero-reveal hero-delay-lede">Before someone ever clicks a website, AI may already be naming three competitors and leaving you out. Gleo shows where you appear, where you disappear, and what to fix next.</p>
-              <form class="landing-start-card hero-reveal hero-delay-form" id="landingStartForm">
-                <label>
-                  <span>Business name</span>
-                  <input id="landingBusinessInput" name="landingBusiness" type="text" placeholder="Willow Creek Dental" autocomplete="organization" />
-                </label>
-                <label>
-                  <span>Website</span>
-                  <input id="landingWebsiteInput" name="landingWebsite" type="url" placeholder="https://yourbusiness.com" required autocomplete="url" />
-                </label>
-                <button class="primary-button border-beam-button" type="submit">Get started</button>
-              </form>
+              <div class="landing-start-card hero-reveal hero-delay-form">
+                <button class="primary-button border-beam-button" type="button" data-signin-open>Sign in</button>
+              </div>
             </div>
           </div>
         </section>
@@ -612,6 +603,6 @@ OPENROUTER_API_KEY=...
       </form>
     </dialog>
 
-    <script src="app.js?v=20260530-03"></script>
+    <script src="app.js?v=20260611-01"></script>
   </body>
 </html>

@@ -37,6 +37,27 @@ const SCAN_REQUEST_TIMEOUT_MS = 60 * 1000;
 const TRACKING_PROGRESS_DURATION_MS = 150000;
 const SERVICE_LOCATION_STORAGE_PREFIX = "gleoServiceLocation:";
 const SERVICE_INDUSTRY_STORAGE_PREFIX = "gleoServiceIndustry:";
+const PRODUCTION_API_BASE_URL = "https://trackigngfinal-production.up.railway.app";
+const PRODUCTION_APP_HOSTS = new Set([
+  "trackigngfinal.vercel.app",
+  "gleo.solutions",
+  "www.gleo.solutions",
+]);
+
+function resolveApiBaseUrl() {
+  const configured =
+    globalThis.__API_BASE_URL__ ||
+    document.documentElement?.dataset.apiBaseUrl ||
+    document.body?.dataset.apiBaseUrl ||
+    "";
+  if (configured) return String(configured).replace(/\/$/, "");
+
+  const host = window.location.hostname;
+  if (host === "127.0.0.1" || host === "localhost") return "";
+  if (PRODUCTION_APP_HOSTS.has(host)) return PRODUCTION_API_BASE_URL;
+  return PRODUCTION_API_BASE_URL;
+}
+
 const API_BASE_URL = resolveApiBaseUrl();
 
 const els = {
@@ -67,9 +88,6 @@ const els = {
   trackingLaunchProgressFill: document.querySelector("#trackingLaunchProgressFill"),
   appToast: document.querySelector("#appToast"),
   appShell: document.querySelector("#appShell"),
-  landingStartForm: document.querySelector("#landingStartForm"),
-  landingWebsiteInput: document.querySelector("#landingWebsiteInput"),
-  landingBusinessInput: document.querySelector("#landingBusinessInput"),
   signupForm: document.querySelector("#signupForm"),
   signupNameInput: document.querySelector("#signupNameInput"),
   signupEmailInput: document.querySelector("#signupEmailInput"),
@@ -171,27 +189,6 @@ async function init() {
   bindPasswordToggles();
   await loadInitialData();
   bindLanding();
-}
-
-const PRODUCTION_API_BASE_URL = "https://trackigngfinal-production.up.railway.app";
-const PRODUCTION_APP_HOSTS = new Set([
-  "trackigngfinal.vercel.app",
-  "gleo.solutions",
-  "www.gleo.solutions",
-]);
-
-function resolveApiBaseUrl() {
-  const configured =
-    globalThis.__API_BASE_URL__ ||
-    document.documentElement?.dataset.apiBaseUrl ||
-    document.body?.dataset.apiBaseUrl ||
-    "";
-  if (configured) return String(configured).replace(/\/$/, "");
-
-  const host = window.location.hostname;
-  if (host === "127.0.0.1" || host === "localhost") return "";
-  if (PRODUCTION_APP_HOSTS.has(host)) return PRODUCTION_API_BASE_URL;
-  return PRODUCTION_API_BASE_URL;
 }
 
 function apiUrl(pathname) {
@@ -1167,9 +1164,6 @@ function applyPublicSignupState() {
   document.querySelectorAll(".signup-only").forEach((node) => {
     node.hidden = !enabled;
   });
-  document.querySelectorAll(".landing-start-card button[type='submit']").forEach((button) => {
-    button.textContent = enabled ? "Get started" : "Sign in";
-  });
   if (els.loginSwitch) {
     els.loginSwitch.hidden = !enabled;
   }
@@ -1203,25 +1197,7 @@ function bindLanding() {
     button.addEventListener("click", () => showSignInPage());
   });
 
-  els.landingPage?.addEventListener("submit", (event) => {
-    const form = event.target.closest(".landing-start-card");
-    if (!form) return;
-    event.preventDefault();
-    const businessInput = form.querySelector("[name='landingBusiness']");
-    const websiteInput = form.querySelector("[name='landingWebsite']");
-    if (!isPublicSignupEnabled()) {
-      showSignInPage();
-      showToast("Sign in with the login details Gleo sent you.");
-      return;
-    }
-    state.pendingStart = {
-      website: normalizeWebsiteInput(websiteInput?.value.trim() || ""),
-      businessName: titleCaseWords(businessInput?.value.trim() || ""),
-    };
-    showLoginPage();
-  });
-
-  [els.landingBusinessInput, ...document.querySelectorAll("[name='landingBusiness']"), els.signupNameInput, els.signInNameInput, els.businessSetupNameInput]
+  [els.signupNameInput, els.signInNameInput, els.businessSetupNameInput]
     .filter(Boolean)
     .forEach((input) => {
       input.addEventListener("blur", () => {
