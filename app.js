@@ -2313,7 +2313,12 @@ function renderMetricTopicCard(category, prompts, results, businessName) {
       <div class="metric-bar-wrap" aria-label="Mention share">
         <div class="metric-mode-label">${escapeHtml(modeLabel)}</div>
         <div class="segmented-mention-bar">
-          <i class="you-segment" title="${escapeAttr(`${youLabel}: ${ownShare}%`)}" style="--w:${ownBarShare}%"></i>
+          <i class="you-segment competitor-segment-detail" title="${escapeAttr(`${youLabel}: ${ownShare}%`)}" style="--w:${ownBarShare}%; --segment-color:#6aa6ff">
+            <span class="segment-tooltip">
+              <b style="--tooltip-color:#6aa6ff">${ownShare}% share</b>
+              <strong>${escapeHtml(businessName || "Your business")}</strong>
+            </span>
+          </i>
           ${competitorSegments}
         </div>
         ${shareLegend}
@@ -2868,7 +2873,17 @@ function renderSelectedTopicSentiment(row, mentions = [], businessName = "", sen
                       <div>
                         <strong>${escapeHtml(item.label)}</strong>
                         <button class="context-info-button" type="button" aria-label="${escapeAttr(firstSentence(item.summary, 180))}">More information</button>
-                        <p class="context-info-popover">${escapeHtml(firstSentence(item.summary, 180))}</p>
+                        <div class="context-info-popover">
+                          <p class="context-info-excerpt">${escapeHtml(item.excerpt || item.summary)}</p>
+                          ${
+                            item.prompt || item.platform
+                              ? `<dl class="context-info-meta">
+                                  ${item.prompt ? `<div><dt>Query asked</dt><dd>${escapeHtml(item.prompt)}</dd></div>` : ""}
+                                  ${item.platform ? `<div><dt>AI response from</dt><dd>${escapeHtml(item.platform)}</dd></div>` : ""}
+                                </dl>`
+                              : ""
+                          }
+                        </div>
                       </div>
                     </article>
                   `,
@@ -2932,14 +2947,30 @@ function buildTopicContextEvidence(mentions, sentiment = "", businessName = "") 
   return definitions
     .map((definition) => {
       const matches = mentions.filter((result) => definition.pattern.test(result.answer || ""));
+      const primary = matches[0];
+      const answerText = primary?.answer || primary?.context || "";
       return {
         label: definition.label,
         count: matches.length,
-        summary: groundedSummaryForPattern(matches[0]?.answer || matches[0]?.context || "", definition.pattern, businessName || matches[0]?.businessName || ""),
+        summary: groundedSummaryForPattern(answerText, definition.pattern, businessName || primary?.businessName || ""),
+        excerpt: buildEvidenceExcerpt(matches, definition.pattern, businessName || primary?.businessName || ""),
+        prompt: primary?.prompt || "",
+        platform: primary?.platformLabel || "",
       };
     })
     .filter((item) => item.count > 0)
     .sort((a, b) => b.count - a.count);
+}
+
+function buildEvidenceExcerpt(mentions, pattern, businessName = "", maxLength = 420) {
+  const chunks = [];
+  for (const result of mentions.slice(0, 2)) {
+    const excerpt = groundedSummaryForPattern(result.answer || result.context || "", pattern, businessName);
+    if (excerpt && !chunks.includes(excerpt)) chunks.push(excerpt);
+  }
+  const combined = chunks.join(" ");
+  if (combined.length <= maxLength) return combined;
+  return `${combined.slice(0, maxLength - 1).trim()}…`;
 }
 
 function groundedSummaryForPattern(text, pattern, businessName = "") {

@@ -48,6 +48,7 @@ const PREMIUM_ENTITLEMENT_PLANS = String(process.env.PREMIUM_ENTITLEMENT_PLANS |
   .filter(Boolean);
 const MAX_CRAWL_PAGES = clamp(Number(process.env.MAX_CRAWL_PAGES || 8), 1, 16);
 const MAX_SCAN_PROMPTS = clamp(Number(process.env.MAX_SCAN_PROMPTS || 18), 1, 18);
+const SCAN_AI_CONCURRENCY = clamp(Number(process.env.SCAN_AI_CONCURRENCY || 6), 1, 12);
 const OPENAI_USE_WEB_SEARCH = parseEnvBool(process.env.OPENAI_USE_WEB_SEARCH, true);
 const GEMINI_USE_WEB_SEARCH = parseEnvBool(process.env.GEMINI_USE_WEB_SEARCH, true);
 const OPENROUTER_USE_WEB_SEARCH = parseEnvBool(process.env.OPENROUTER_USE_WEB_SEARCH, true);
@@ -435,27 +436,28 @@ async function runScan(payload, previousScans = []) {
   const promptStrategy = buildPromptStrategy({ site, prompts, businessName, location });
 
   const results = [];
+  const providerTasks = [];
 
   for (const prompt of prompts) {
     for (const platform of configuredPlatforms) {
-      const started = new Date().toISOString();
-      try {
-      const providerResult = await askProvider(platform, {
-        prompt: prompt.text,
-        businessName,
-        location,
-        site,
-      });
-      if (!cleanText(providerResult.answer || "")) {
-        const incompleteReason = providerResult.rawMeta?.incomplete?.reason;
-        throw new Error(
-          incompleteReason
-            ? `${PROVIDERS[platform].label} returned no answer text (${incompleteReason}).`
-            : `${PROVIDERS[platform].label} returned no answer text.`,
-        );
-      }
-      results.push(
-        analyzeAnswer({
+      providerTasks.push(async () => {
+        const started = new Date().toISOString();
+        try {
+          const providerResult = await askProvider(platform, {
+            prompt: prompt.text,
+            businessName,
+            location,
+            site,
+          });
+          if (!cleanText(providerResult.answer || "")) {
+            const incompleteReason = providerResult.rawMeta?.incomplete?.reason;
+            throw new Error(
+              incompleteReason
+                ? `${PROVIDERS[platform].label} returned no answer text (${incompleteReason}).`
+                : `${PROVIDERS[platform].label} returned no answer text.`,
+            );
+          }
+          return analyzeAnswer({
             ...providerResult,
             id: makeId(),
             promptId: prompt.id,
@@ -468,32 +470,34 @@ async function runScan(payload, previousScans = []) {
             location,
             businessName,
             website,
-          }),
-        );
-      } catch (error) {
-        results.push({
-          id: makeId(),
-          promptId: prompt.id,
-          prompt: prompt.text,
-          category: prompt.category,
-          platform,
-          platformLabel: PROVIDERS[platform].label,
-          model: PROVIDERS[platform].model,
-          requestedAt: started,
-          location,
-          answer: "",
-          citations: [],
-          sources: [],
-          businesses: [],
-          ownMentioned: false,
-          rank: null,
-          sentiment: "unknown",
-          context: "The provider call failed.",
-          error: error.message || "Provider call failed.",
-        });
-      }
+          });
+        } catch (error) {
+          return {
+            id: makeId(),
+            promptId: prompt.id,
+            prompt: prompt.text,
+            category: prompt.category,
+            platform,
+            platformLabel: PROVIDERS[platform].label,
+            model: PROVIDERS[platform].model,
+            requestedAt: started,
+            location,
+            answer: "",
+            citations: [],
+            sources: [],
+            businesses: [],
+            ownMentioned: false,
+            rank: null,
+            sentiment: "unknown",
+            context: "The provider call failed.",
+            error: error.message || "Provider call failed.",
+          };
+        }
+      });
     }
   }
+
+  results.push(...(await runWithConcurrency(providerTasks, SCAN_AI_CONCURRENCY)));
 
   const metrics = buildMetrics({ results, prompts, site, businessName, website, previousScans });
 
@@ -719,13 +723,15 @@ async function enrichSiteWithAIProfile({ site, businessName, location, industry 
   const systemPrompt = [
     "Analyze the crawled website for GEO/AI visibility tracking.",
     "Return JSON only. Do not wrap it in markdown.",
-    "Infer the actual business category from the page content. Do not rely on a fixed vertical list.",
-    "Create realistic customer prompts for AI visibility checks. Prompts must match the business, not a prior example.",
+    "Step 1: Derive 6-8 realistic customerProblems — specific situations, constraints, or goals someone would actually have before searching.",
+    "Step 2: Turn each problem into a promptGroup with three long-tail, conversational customer queries.",
+    "Prompts must sound like real people typing into ChatGPT, not SEO keyword templates.",
+    "Never use generic templates like 'best X in Y', 'trusted X in Y', 'top X near Y', or 'best X for Y'.",
+    "Good examples: 'We just moved to {city} and need a {service} that offers evening hours — who should we call?', 'Our nonprofit needs help with {specific need} before {event} — any local options?'",
+    "Each prompt group should contain three distinct prompts that test the same underlying problem with local/regional wording variation.",
     "Use ONLY the submittedLocation for geographic prompts. Do not substitute a different city or region detected on the website.",
-    "Use ONLY the submittedIndustry for the business category label and prompt framing. Do not substitute template categories like sports foundation, dentist, or CRM platform unless they match submittedIndustry.",
+    "Use ONLY the submittedIndustry for the business category label and prompt framing.",
     "Use the crawled website to refine services, proof points, and customer intents, but never replace submittedIndustry with a different category.",
-    "Use a mix of the exact city, nearby cities/service areas, and broader regional wording when it makes sense.",
-    "Each prompt group should contain three prompts that test the same user intent with local/regional wording variation.",
   ].join(" ");
 
   const userPrompt = {
@@ -749,11 +755,19 @@ async function enrichSiteWithAIProfile({ site, businessName, location, industry 
       },
       services: ["3 to 6 concrete services from the site"],
       customerTypes: ["2 to 5 audience/customer groups"],
+      customerProblems: [
+        {
+          problem: "specific customer situation in plain language",
+          audience: "who has this problem",
+          urgency: "low|medium|high",
+        },
+      ],
       searchAreas: ["exact city", "nearby city or neighborhood", "broader region"],
       promptGroups: [
         {
           category: "Business-specific category name",
-          prompts: ["same intent prompt 1", "same intent prompt 2", "same intent prompt 3"],
+          customerProblem: "the problem this group tests",
+          prompts: ["long-tail conversational query 1", "long-tail conversational query 2", "long-tail conversational query 3"],
           intent: "what this measures",
           reason: "why this matters",
         },
@@ -768,7 +782,7 @@ async function enrichSiteWithAIProfile({ site, businessName, location, industry 
       {
         model: PROVIDERS.openai.model,
         input: `${systemPrompt}\n\n${JSON.stringify(userPrompt, null, 2)}`,
-        max_output_tokens: 1800,
+        max_output_tokens: 2400,
         reasoning: { effort: "minimal" },
       },
       { Authorization: `Bearer ${process.env[PROVIDERS.openai.keyName]}` },
@@ -792,6 +806,16 @@ async function enrichSiteWithAIProfile({ site, businessName, location, industry 
       searchAreas: mergedSearchAreas,
       aiProfile: {
         customerTypes: normalizeAIList(profile?.customerTypes, [vertical.customer]).slice(0, 5),
+        customerProblems: Array.isArray(profile?.customerProblems)
+          ? profile.customerProblems
+              .map((item) => ({
+                problem: cleanText(item?.problem).slice(0, 220),
+                audience: cleanText(item?.audience).slice(0, 120),
+                urgency: cleanText(item?.urgency).slice(0, 20),
+              }))
+              .filter((item) => item.problem)
+              .slice(0, 8)
+          : [],
         generatedAt: new Date().toISOString(),
       },
       aiPromptGroups: aiPromptGroups.length ? aiPromptGroups : null,
@@ -806,15 +830,16 @@ function buildPromptSet({ site, businessName, location }) {
   if (Array.isArray(site.aiPromptGroups) && site.aiPromptGroups.length) {
     return site.aiPromptGroups.flatMap((group) => {
       const prompts = Array.isArray(group.prompts) && group.prompts.length ? group.prompts : [group.prompt].filter(Boolean);
-      const repeatedPrompt = cleanText(prompts[0] || group.prompt || "");
-      return repeatPrompt(repeatedPrompt, 3).map((text, index) => ({
+      const promptTexts = prompts.slice(0, 3);
+      const paddedPrompts = promptTexts.length >= 3 ? promptTexts : repeatPrompt(promptTexts[0] || "", 3);
+      return paddedPrompts.map((text, index) => ({
         id: makeId(),
         category: cleanText(group.category || "AI visibility"),
-        text,
+        text: cleanText(text),
         runIndex: index + 1,
-        intent: cleanText(group.intent || "Measure AI visibility for a realistic customer query."),
+        intent: cleanText(group.intent || group.customerProblem || "Measure AI visibility for a realistic customer query."),
         locationVariant: inferPromptLocation(text, site.searchAreas, location),
-        reason: cleanText(group.reason || "Generated from the site crawl and business profile."),
+        reason: cleanText(group.reason || "Generated from customer problems identified on the site."),
         businessName,
         generatedFrom: "AI site analysis",
       }));
@@ -1529,15 +1554,42 @@ function normalizeAIPromptGroups(groups, searchAreas, location) {
       const prompts = normalizeAIList(group?.prompts, [group?.prompt])
         .map((prompt) => broadenPromptLocation(prompt, searchAreas, location))
         .filter(Boolean)
+        .filter((prompt) => !isGenericPromptTemplate(prompt))
         .slice(0, 3);
       return {
         category: cleanText(group?.category).slice(0, 80),
+        customerProblem: cleanText(group?.customerProblem).slice(0, 220),
         prompts,
         intent: cleanText(group?.intent).slice(0, 180),
         reason: cleanText(group?.reason).slice(0, 220),
       };
     })
     .filter((group) => group.category && group.prompts.length);
+}
+
+function isGenericPromptTemplate(prompt) {
+  const text = normalized(prompt);
+  if (!text) return true;
+  return (
+    /^best .+ (in|near|around) /.test(text) ||
+    /^trusted .+ (for|in|near|around) /.test(text) ||
+    /^top .+ (in|near|around) /.test(text) ||
+    /^who is the best .+ (in|near|around) /.test(text)
+  );
+}
+
+async function runWithConcurrency(tasks, concurrency = 6) {
+  if (!tasks.length) return [];
+  const results = new Array(tasks.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < tasks.length) {
+      const index = cursor++;
+      results[index] = await tasks[index]();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+  return results;
 }
 
 function broadenPromptLocation(prompt, searchAreas, location) {
