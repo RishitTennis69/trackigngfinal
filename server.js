@@ -23,6 +23,12 @@ const OPENROUTER_HTTP_REFERER = cleanText(process.env.OPENROUTER_HTTP_REFERER ||
 const ALLOWED_ORIGINS = new Set(
   [
     APP_BASE_URL,
+    ...(process.env.ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((value) => cleanText(value).replace(/\/$/, ""))
+      .filter(Boolean),
+    "https://gleo.solutions",
+    "https://www.gleo.solutions",
     "https://trackigngfinal.vercel.app",
     "http://127.0.0.1:4173",
     "http://localhost:4173",

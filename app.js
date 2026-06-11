@@ -173,6 +173,13 @@ async function init() {
   bindLanding();
 }
 
+const PRODUCTION_API_BASE_URL = "https://trackigngfinal-production.up.railway.app";
+const PRODUCTION_APP_HOSTS = new Set([
+  "trackigngfinal.vercel.app",
+  "gleo.solutions",
+  "www.gleo.solutions",
+]);
+
 function resolveApiBaseUrl() {
   const configured =
     globalThis.__API_BASE_URL__ ||
@@ -182,10 +189,9 @@ function resolveApiBaseUrl() {
   if (configured) return String(configured).replace(/\/$/, "");
 
   const host = window.location.hostname;
-  if (host === "trackigngfinal.vercel.app") {
-    return "https://trackigngfinal-production.up.railway.app";
-  }
-  return "";
+  if (host === "127.0.0.1" || host === "localhost") return "";
+  if (PRODUCTION_APP_HOSTS.has(host)) return PRODUCTION_API_BASE_URL;
+  return PRODUCTION_API_BASE_URL;
 }
 
 function apiUrl(pathname) {
