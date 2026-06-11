@@ -24,6 +24,7 @@ const state = {
   trackingProgressRaf: null,
   trackingProgressTimer: null,
   trackingProgressStartedAt: null,
+  scanPollBaselineId: "",
   premiumRequestPending: false,
 };
 
@@ -32,7 +33,7 @@ const FIRST_SCAN_PENDING_AT_KEY = "gleoFirstScanPendingAt";
 const FIRST_SCAN_POLL_INTERVAL_MS = 5000;
 const FIRST_SCAN_POLL_MAX_ATTEMPTS = 36;
 const FIRST_SCAN_PENDING_MAX_MS = 20 * 60 * 1000;
-const SCAN_REQUEST_TIMEOUT_MS = 12 * 60 * 1000;
+const SCAN_REQUEST_TIMEOUT_MS = 60 * 1000;
 const TRACKING_PROGRESS_DURATION_MS = 150000;
 const SERVICE_LOCATION_STORAGE_PREFIX = "gleoServiceLocation:";
 const SERVICE_INDUSTRY_STORAGE_PREFIX = "gleoServiceIndustry:";
@@ -625,6 +626,7 @@ function clearPendingFirstScanState() {
   stopFirstScanPolling();
   state.autoScanRequestedFor = "";
   state.trackingProgressStartedAt = null;
+  state.scanPollBaselineId = "";
   setPendingFirstScanUserId("");
   stopTrackingLaunchProgress();
 }
@@ -662,28 +664,36 @@ function startTrackingLaunchProgress({ fromStart = false, complete = false } = {
     return;
   }
 
-  if (state.trackingProgressTimer) return;
-
   if (fromStart || !state.trackingProgressStartedAt) {
     stopTrackingLaunchProgress();
     state.trackingProgressStartedAt = Date.now();
     setTrackingLaunchProgress(0.08, 0.85);
+  } else if (state.trackingProgressTimer) {
+    return;
   }
 
   const startedAt = state.trackingProgressStartedAt;
-  const maxScale = 0.94;
+  const primaryMax = 0.9;
+  const holdMax = 0.97;
 
   const tick = () => {
     if (!els.trackingLaunchProgressFill || !startedAt) return;
     const elapsed = Date.now() - startedAt;
-    const t = Math.min(1, elapsed / TRACKING_PROGRESS_DURATION_MS);
-    const eased = 1 - Math.pow(1 - t, 2.2);
-    setTrackingLaunchProgress(0.08 + eased * (maxScale - 0.08), 0.72 + eased * 0.28);
-    if (t < 1) {
-      state.trackingProgressTimer = window.setTimeout(tick, 250);
+    let scale;
+
+    if (elapsed <= TRACKING_PROGRESS_DURATION_MS) {
+      const t = elapsed / TRACKING_PROGRESS_DURATION_MS;
+      const eased = 1 - Math.pow(1 - t, 2.2);
+      scale = 0.08 + eased * (primaryMax - 0.08);
     } else {
-      state.trackingProgressTimer = null;
+      const overtime = elapsed - TRACKING_PROGRESS_DURATION_MS;
+      const creep = 1 - Math.exp(-overtime / 240000);
+      scale = primaryMax + creep * (holdMax - primaryMax);
     }
+
+    const opacity = 0.72 + Math.min(1, scale / holdMax) * 0.28;
+    setTrackingLaunchProgress(scale, opacity);
+    state.trackingProgressTimer = window.setTimeout(tick, 250);
   };
   tick();
 }
@@ -700,38 +710,63 @@ async function pollLatestFirstScan({ resetAttempts = false } = {}) {
   if (!state.user) return null;
   if (resetAttempts) state.firstScanPollAttempts = 0;
 
-  if (state.firstScanPollAttempts >= FIRST_SCAN_POLL_MAX_ATTEMPTS) {
-    clearPendingFirstScanState();
-    if (!state.currentScan) {
-      showTrackingLaunchPage();
-      setStatus("The first scan is taking longer than expected. You can open the dashboard and retry when ready.", "working");
-    }
-    return null;
-  }
-
-  state.firstScanPollAttempts += 1;
+  const hadDashboard = Boolean(state.currentScan?.metrics?.completedAnswers);
 
   try {
     const latest = await fetchJson("/api/scans/latest");
     const latestScan = latest.scan || null;
-    if (latestScan?.metrics?.completedAnswers) {
+    const scanJob = latest.scanJob || null;
+    const isNewScan = Boolean(latestScan) && latestScan.id !== state.scanPollBaselineId;
+
+    if (isNewScan && latestScan.metrics?.completedAnswers) {
+      setScanning(false, true);
       applyCompletedScan(latestScan, { openDashboard: true });
       return latestScan;
     }
-    if (latestScan) {
+
+    if (scanJob?.status === "failed") {
+      clearPendingFirstScanState();
+      setScanning(false, true);
+      renderAll();
+      if (!hadDashboard) showTrackingLaunchPage();
+      setStatus(scanJob.error || "The scan failed. Open the dashboard to retry.", "error");
+      return null;
+    }
+
+    if (isNewScan && scanJob?.status !== "running") {
       state.currentScan = latestScan;
       clearPendingFirstScanState();
+      setScanning(false, true);
       renderAll();
-      showTrackingLaunchPage();
+      if (!hadDashboard) showTrackingLaunchPage();
       setStatus("The scan finished without enough completed AI answers. Open the dashboard to retry.", "error");
       return latestScan;
+    }
+
+    if (scanJob?.status === "running") {
+      // The server is actively working — keep waiting without counting attempts.
+      state.firstScanPollAttempts = 0;
+    } else {
+      state.firstScanPollAttempts += 1;
     }
   } catch (error) {
     if (error?.status === 401 || error?.status === 403) {
       clearPendingFirstScanState();
+      setScanning(false, true);
       setStatus(error.message || "Your session expired. Sign in again.", "error");
       return null;
     }
+    state.firstScanPollAttempts += 1;
+  }
+
+  if (state.firstScanPollAttempts >= FIRST_SCAN_POLL_MAX_ATTEMPTS) {
+    clearPendingFirstScanState();
+    setScanning(false, true);
+    if (!hadDashboard) {
+      showTrackingLaunchPage();
+      setStatus("The first scan is taking longer than expected. You can open the dashboard and retry when ready.", "working");
+    }
+    return null;
   }
 
   state.firstScanPollTimer = window.setTimeout(() => {
@@ -760,9 +795,22 @@ async function resumeOrStartFirstScan() {
 
   try {
     const latest = await fetchJson("/api/scans/latest");
+    if (latest.scanJob?.status === "running") {
+      // A scan is already running server-side — just watch for the result.
+      state.scanPollBaselineId = latest.scan?.id || "";
+      setScanning(true, true);
+      startFirstScanPolling({ resetAttempts: true });
+      return { started: true, background: true, resumed: true };
+    }
     if (latest.scan?.metrics?.completedAnswers) {
       applyCompletedScan(latest.scan, { openDashboard: true });
       return { started: true, completed: true };
+    }
+    if (latest.scanJob?.status === "failed") {
+      clearPendingFirstScanState();
+      showTrackingLaunchPage();
+      setStatus(latest.scanJob.error || "The scan failed. Open the dashboard to retry.", "error");
+      return { started: false, needsRetry: true };
     }
     if (latest.scan) {
       state.currentScan = latest.scan;
@@ -778,8 +826,8 @@ async function resumeOrStartFirstScan() {
     }
   }
 
-  // No scan row on the server yet — polling cannot help. Re-POST unless this tab
-  // already has an in-flight request (e.g. user refreshed mid-scan).
+  // No scan row and no running job — start one. The server dedupes per user,
+  // so a duplicate POST can never double-scan.
   if (!state.isScanning) {
     state.autoScanRequestedFor = state.user.id;
     markPendingFirstScan(state.user.id);
@@ -1582,9 +1630,26 @@ async function runScanRequest(payload, { auto = false } = {}) {
       throw requestError;
     }
 
-    applyCompletedScan(data.scan, { openDashboard: auto });
-    return { ok: true, scan: data.scan };
+    if (data.scan) {
+      // Older servers return the finished scan directly.
+      setScanning(false, auto);
+      applyCompletedScan(data.scan, { openDashboard: auto });
+      return { ok: true, scan: data.scan };
+    }
+
+    // The server accepted the scan as a background job. Polling takes over from
+    // here, so closing the tab or losing the connection no longer kills the scan.
+    state.scanPollBaselineId = state.currentScan?.id || "";
+    if (state.user) markPendingFirstScan(state.user.id, { resetClock: true });
+    setStatus("Scan running. We are collecting AI answers now. This can take a few minutes.", "working");
+    startFirstScanPolling({ resetAttempts: true });
+    if (!els.trackingLaunchPage?.classList.contains("hidden")) {
+      showTrackingLaunchPage();
+    }
+    return { ok: true, accepted: true };
   } catch (error) {
+    setScanning(false, auto);
+
     if (error?.status === 401 || error?.status === 403) {
       clearPendingFirstScanState();
       const authMessage = error.message || "Your session expired. Sign in again.";
@@ -1593,17 +1658,18 @@ async function runScanRequest(payload, { auto = false } = {}) {
       return { ok: false, error };
     }
 
-    if (error?.status === 400 && /location|industry/i.test(error.message || "")) {
+    if (error?.status === 400 && /location|industry|website/i.test(error.message || "")) {
       clearPendingFirstScanState();
       setStatus(error.message, "error");
-      showLocationSetupPage();
+      if (auto) showLocationSetupPage();
+      else showToast(error.message);
       return { ok: false, error, needsTrackingSetup: true };
     }
 
     if (auto && state.user) state.autoScanRequestedFor = "";
     const message =
       error?.name === "AbortError"
-        ? "The scan timed out before it could finish. Open the dashboard and try again."
+        ? "We could not reach the scan server. Check your connection and try again."
         : error.message || "The scan could not complete.";
     setStatus(message, "error");
     if (!auto) showToast(message);
@@ -1612,12 +1678,10 @@ async function runScanRequest(payload, { auto = false } = {}) {
     } else {
       clearPendingFirstScanState();
     }
-    return { ok: false, error };
-  } finally {
-    setScanning(false, auto);
     if (!els.trackingLaunchPage?.classList.contains("hidden")) {
       showTrackingLaunchPage();
     }
+    return { ok: false, error };
   }
 }
 

@@ -168,10 +168,11 @@ const server = http.createServer(async (request, response) => {
 
     if (url.pathname === "/api/scans/latest" && request.method === "GET") {
       const user = await getAuthenticatedUser(request);
-      if (!user) return sendJson(response, { scan: null }, 200, corsHeaders);
+      if (!user) return sendJson(response, { scan: null, scanJob: null }, 200, corsHeaders);
       await ensureUserHasAccess(user);
       const scans = await readScans(user.id);
-      return sendJson(response, { scan: scans.at(-1) || null }, 200, corsHeaders);
+      const job = activeScanJobs.get(user.id) || null;
+      return sendJson(response, { scan: scans.at(-1) || null, scanJob: job ? publicScanJob(job) : null }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/workspace/location" && request.method === "PATCH") {
@@ -195,6 +196,12 @@ const server = http.createServer(async (request, response) => {
       const user = await getAuthenticatedUser(request);
       if (!user) return sendJson(response, { error: "Sign in before running a scan." }, 401, corsHeaders);
       await ensureUserHasAccess(user);
+
+      const existingJob = activeScanJobs.get(user.id);
+      if (existingJob?.status === "running") {
+        return sendJson(response, { ok: true, status: "running", job: publicScanJob(existingJob) }, 202, corsHeaders);
+      }
+
       const payload = await readJsonBody(request);
       payload.location = normalizeServiceLocation(payload.location || user.serviceLocation || "");
       payload.industry = normalizeServiceIndustry(payload.industry || user.serviceIndustry || "");
@@ -204,10 +211,21 @@ const server = http.createServer(async (request, response) => {
       if (!payload.industry) {
         return sendJson(response, { error: "Enter your business industry before running a scan." }, 400, corsHeaders);
       }
-      const scans = await readScans(user.id);
-      const scan = await runScan(payload, scans);
-      await appendScanForUser(user.id, scan);
-      return sendJson(response, { scan }, 200, corsHeaders);
+      try {
+        normalizeUrl(payload.website);
+      } catch {
+        return sendJson(response, { error: "Enter a valid business website." }, 400, corsHeaders);
+      }
+
+      const job = startScanJob(user, payload);
+      return sendJson(response, { ok: true, status: "running", job: publicScanJob(job) }, 202, corsHeaders);
+    }
+
+    if (url.pathname === "/api/scan/status" && request.method === "GET") {
+      const user = await getAuthenticatedUser(request);
+      if (!user) return sendJson(response, { error: "Sign in first." }, 401, corsHeaders);
+      const job = activeScanJobs.get(user.id) || null;
+      return sendJson(response, { job: job ? publicScanJob(job) : null }, 200, corsHeaders);
     }
 
     if (url.pathname === "/api/premium-request" && request.method === "POST") {
@@ -332,6 +350,56 @@ server.listen(PORT, HOST, () => {
   const displayUrl = APP_BASE_URL || `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}/`;
   console.log(`Gleo GEO Insights running at ${displayUrl}`);
 });
+
+// Scans run as server-side background jobs so the browser never has to hold a
+// multi-minute HTTP request open. One job per user at a time; finished jobs are
+// kept briefly so the client can read success/failure on its next poll.
+const activeScanJobs = new Map();
+const SCAN_JOB_RETENTION_MS = 10 * 60 * 1000;
+
+function publicScanJob(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt || null,
+    scanId: job.scanId || "",
+    error: job.error || "",
+  };
+}
+
+function startScanJob(user, payload) {
+  const job = {
+    id: makeId(),
+    userId: user.id,
+    status: "running",
+    startedAt: new Date().toISOString(),
+  };
+  activeScanJobs.set(user.id, job);
+  console.log(`Scan job ${job.id} started for ${user.email || user.id} (${payload.website}).`);
+
+  void (async () => {
+    try {
+      const scans = await readScans(user.id);
+      const scan = await runScan(payload, scans);
+      await appendScanForUser(user.id, scan);
+      job.status = "completed";
+      job.scanId = scan.id;
+      console.log(`Scan job ${job.id} completed: ${scan.metrics?.completedAnswers ?? 0} answers.`);
+    } catch (error) {
+      job.status = "failed";
+      job.error = error.message || "Scan failed.";
+      console.error(`Scan job ${job.id} failed:`, job.error);
+    }
+    job.finishedAt = new Date().toISOString();
+    const cleanup = setTimeout(() => {
+      if (activeScanJobs.get(user.id) === job) activeScanJobs.delete(user.id);
+    }, SCAN_JOB_RETENTION_MS);
+    cleanup.unref?.();
+  })();
+
+  return job;
+}
 
 async function runScan(payload, previousScans = []) {
   const website = normalizeUrl(payload.website);
@@ -2476,11 +2544,12 @@ function inferImplementationPath(website = "", explicitValue = "") {
   return website ? "Editing existing site" : "Not captured";
 }
 
-function inferSetupStatus({ accessTier = "", scanCount = 0, website = "", explicitValue = "" }) {
+function inferSetupStatus({ accessTier = "", scanCount = 0, website = "", explicitValue = "", scanRunning = false }) {
   const explicit = normalizeWorkspaceMetadataValue(explicitValue);
   if (explicit) return explicit;
   if (!website) return "Missing site details";
   if (["blocked", "expired_trial", "none"].includes(accessTier)) return "Access blocked";
+  if (scanRunning) return "Scan running now";
   if (!scanCount) return "Signed up, first scan pending";
   return "Tracking live";
 }
@@ -2804,7 +2873,9 @@ async function getAdminOverview() {
         scanCount: scansByUserId.get(profile.id) || 0,
         website: workspace?.website || "",
         explicitValue: workspace?.implementation_status || "",
+        scanRunning: activeScanJobs.get(profile.id)?.status === "running",
       }),
+      scanRunning: activeScanJobs.get(profile.id)?.status === "running",
       addUsStatus: inferAddUsStatus({
         scanCount: scansByUserId.get(profile.id) || 0,
         latestScanData,

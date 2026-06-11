@@ -136,14 +136,37 @@ const scanRes = await request("/api/scan", {
   headers: { Authorization: `Bearer ${userToken}` },
   body: scanPayload,
 });
-const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 
 if (!scanRes.ok) {
-  console.error(`FAIL: /api/scan (${elapsed}s)`, scanRes.status, scanRes.data.error || scanRes.data);
+  console.error("FAIL: /api/scan", scanRes.status, scanRes.data.error || scanRes.data);
   process.exit(1);
 }
 
-const scan = scanRes.data.scan || {};
+let scan = scanRes.data.scan || null;
+if (!scan) {
+  console.log(`Scan accepted as background job (${scanRes.status}). Polling for result...`);
+  const deadline = Date.now() + 8 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const latest = await request("/api/scans/latest", {
+      headers: { Authorization: `Bearer ${userToken}` },
+    });
+    if (latest.data.scanJob?.status === "failed") {
+      console.error("FAIL: scan job failed:", latest.data.scanJob.error);
+      process.exit(1);
+    }
+    if (latest.data.scan) {
+      scan = latest.data.scan;
+      break;
+    }
+  }
+  if (!scan) {
+    console.error("FAIL: scan did not complete within 8 minutes.");
+    process.exit(1);
+  }
+}
+const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+
 const metrics = scan.metrics || {};
 const errors = (scan.results || []).filter((row) => row.error);
 const completed = metrics.completedAnswers ?? 0;
