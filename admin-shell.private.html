@@ -6,18 +6,25 @@
     <title>Gleo Admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&family=Outfit:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="admin.css" />
   </head>
-  <body>
-    <main class="admin-shell">
-      <section class="admin-auth" id="adminAuth">
-        <div class="admin-auth-card">
-          <div class="admin-auth-top">
-            <p class="eyebrow">Private admin</p>
-          </div>
-          <h1>Admin sign in</h1>
-          <p class="hero-copy">Operations access for provisioning clients and reviewing shared Supabase data.</p>
+  <body class="admin-page">
+    <section class="admin-auth-screen" id="adminAuth">
+      <div class="admin-auth-layout">
+        <div class="admin-auth-copy">
+          <a class="brand" href="/" aria-label="Gleo GEO Insights">
+            <strong>Gleo</strong>
+            <span>GEO Insights</span>
+          </a>
+          <h1>Admin access</h1>
+          <p>Provision client logins, review scan activity, and manage premium requests from one private operations view.</p>
+        </div>
+        <div class="login-card admin-login-card">
+          <p class="eyebrow">Private admin</p>
+          <h2>Sign in</h2>
+          <p>Use your Gleo operations credentials.</p>
           <form class="admin-login-form" id="adminLoginForm">
             <label>
               <span>Email</span>
@@ -27,62 +34,69 @@
               <span>Password</span>
               <input id="adminPasswordInput" type="password" autocomplete="current-password" required />
             </label>
-            <button class="primary-link auth-submit" type="submit" id="adminLoginButton">Sign in</button>
+            <button class="primary-button admin-submit-button" type="submit" id="adminLoginButton">Sign in</button>
           </form>
           <p class="admin-auth-status hidden" id="adminAuthStatus"></p>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="admin-board hidden" id="adminBoard">
-        <section class="admin-hero">
+    <div class="admin-app hidden" id="adminBoard">
+      <header class="admin-topbar">
+        <a class="brand" href="/" aria-label="Gleo GEO Insights">
+          <strong>Gleo</strong>
+          <span>Admin Operations</span>
+        </a>
+        <div class="admin-topbar-actions">
+          <button class="primary-button" type="button" id="openClientModalButton">Create client</button>
+          <button class="ghost-button" type="button" id="refreshButton">Refresh</button>
+          <button class="ghost-button admin-danger-button" type="button" id="clearAllUsersButton" title="Clear all user data">
+            Clear all users
+          </button>
+          <button class="ghost-button" type="button" id="adminLogoutButton">Log out</button>
+          <a class="ghost-button" href="/">Open dashboard</a>
+        </div>
+      </header>
+
+      <main class="admin-main">
+        <section class="admin-page-head">
           <div>
-            <p class="eyebrow">Admin</p>
-            <h1>Operations</h1>
-            <p class="hero-copy">Provision client logins, then monitor entitlements, scans, and premium requests.</p>
-          </div>
-          <div class="hero-actions">
-            <button class="primary-link" type="button" id="openClientModalButton">Create client account</button>
-            <button class="secondary-button" type="button" id="refreshButton">Refresh</button>
-            <button class="danger-button" type="button" id="clearAllUsersButton" title="Clear all user data">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm3 0h2v9h-2V9ZM7 9h2v9H7V9Z" /></svg>
-              Clear all users
-            </button>
-            <button class="secondary-button" type="button" id="adminLogoutButton">Log out</button>
-            <a class="primary-link" href="/">Open dashboard</a>
+            <p class="eyebrow">Operations</p>
+            <h1>Client accounts</h1>
+            <p>Monitor entitlements, scans, login credentials, and premium requests.</p>
           </div>
         </section>
 
-        <section class="stats-grid" id="statsGrid"></section>
-
+        <section class="admin-stats-grid" id="statsGrid"></section>
         <section class="admin-status hidden" id="adminStatus"></section>
 
-        <section class="admin-grid">
-          <section class="panel">
-            <div class="panel-head">
+        <section class="admin-panels">
+          <section class="admin-panel">
+            <div class="admin-panel-head">
               <div>
                 <p class="eyebrow">Premium queue</p>
                 <h2>Service requests</h2>
               </div>
             </div>
-            <div class="request-list" id="requestList"></div>
+            <div class="admin-request-list" id="requestList"></div>
           </section>
 
-          <section class="panel">
-            <div class="panel-head">
+          <section class="admin-panel admin-panel-wide">
+            <div class="admin-panel-head">
               <div>
                 <p class="eyebrow">Customers</p>
                 <h2>Users</h2>
               </div>
-              <button class="danger-button compact" type="button" id="clearAllUsersButtonTable" title="Clear all user data">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm3 0h2v9h-2V9ZM7 9h2v9H7V9Z" /></svg>
+              <button class="ghost-button admin-danger-button compact" type="button" id="clearAllUsersButtonTable" title="Clear all user data">
                 Clear all
               </button>
             </div>
-            <div class="table-wrap">
-              <table class="data-table">
+            <div class="admin-table-wrap">
+              <table class="admin-data-table">
                 <thead>
                   <tr>
                     <th>User</th>
+                    <th>Password</th>
                     <th>Access</th>
                     <th>Site</th>
                     <th>Setup</th>
@@ -95,8 +109,8 @@
             </div>
           </section>
         </section>
-      </section>
-    </main>
+      </main>
+    </div>
 
     <div class="admin-modal hidden" id="adminClientModal" role="dialog" aria-modal="true" aria-labelledby="adminClientModalTitle">
       <button class="admin-modal-backdrop" type="button" data-modal-close aria-label="Close dialog"></button>
@@ -106,10 +120,10 @@
             <p class="eyebrow">Provision</p>
             <h2 id="adminClientModalTitle">Create client account</h2>
           </div>
-          <button class="admin-modal-close" type="button" data-modal-close aria-label="Close">×</button>
+          <button class="admin-modal-close ghost-button" type="button" data-modal-close aria-label="Close">×</button>
         </div>
-        <p class="hero-copy">Fill this out for each client. Send them their name, email, and password — they sign in on the main dashboard.</p>
-        <form class="admin-client-form" id="adminClientForm">
+        <p class="admin-modal-copy">Create the login only. Clients add business name, website, location, and industry after they sign in.</p>
+        <form class="admin-client-form admin-client-form-simple" id="adminClientForm">
           <label>
             <span>Full name</span>
             <input id="adminClientNameInput" type="text" autocomplete="name" required />
@@ -122,15 +136,7 @@
             <span>Password</span>
             <input id="adminClientPasswordInput" type="text" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" />
           </label>
-          <label>
-            <span>Business name</span>
-            <input id="adminClientBusinessInput" type="text" autocomplete="organization" required />
-          </label>
-          <label class="full-width">
-            <span>Website</span>
-            <input id="adminClientWebsiteInput" type="url" autocomplete="url" required placeholder="https://yourbusiness.com" />
-          </label>
-          <button class="primary-link auth-submit full-width" type="submit" id="adminClientSubmitButton">Create client account</button>
+          <button class="primary-button admin-submit-button full-width" type="submit" id="adminClientSubmitButton">Create client account</button>
         </form>
         <p class="admin-form-status hidden" id="adminClientStatus"></p>
       </div>

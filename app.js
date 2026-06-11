@@ -149,6 +149,7 @@ const els = {
   emptyStateText: document.querySelector("#emptyStateText"),
   answerDialog: document.querySelector("#answerDialog"),
   dialogContent: document.querySelector("#dialogContent"),
+  newScanConfirmDialog: document.querySelector("#newScanConfirmDialog"),
   loginSwitch: document.querySelector("#loginSwitch"),
   clearResultsButton: document.querySelector("#clearResultsButton"),
 };
@@ -1525,15 +1526,24 @@ function renderProfileMenu() {
     : "No business selected";
 }
 
+function openNewScanSetup() {
+  state.setupForcedOpen = true;
+  if (state.currentScan) {
+    if (els.websiteInput) els.websiteInput.value = state.currentScan.website || "";
+    if (els.businessInput) els.businessInput.value = state.currentScan.businessName || "";
+  }
+  renderSetupVisibility();
+  els.websiteInput?.focus();
+}
+
 function bindScan() {
   els.newScanButton?.addEventListener("click", () => {
-    state.setupForcedOpen = true;
-    if (state.currentScan) {
-      if (els.websiteInput) els.websiteInput.value = state.currentScan.website || "";
-      if (els.businessInput) els.businessInput.value = state.currentScan.businessName || "";
-    }
-    renderSetupVisibility();
-    els.websiteInput?.focus();
+    els.newScanConfirmDialog?.showModal();
+  });
+
+  els.newScanConfirmDialog?.addEventListener("close", () => {
+    if (els.newScanConfirmDialog.returnValue !== "confirm") return;
+    openNewScanSetup();
   });
 
   els.scanForm.addEventListener("submit", async (event) => {

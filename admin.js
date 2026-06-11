@@ -11,8 +11,6 @@ const els = {
   adminClientNameInput: document.querySelector("#adminClientNameInput"),
   adminClientEmailInput: document.querySelector("#adminClientEmailInput"),
   adminClientPasswordInput: document.querySelector("#adminClientPasswordInput"),
-  adminClientBusinessInput: document.querySelector("#adminClientBusinessInput"),
-  adminClientWebsiteInput: document.querySelector("#adminClientWebsiteInput"),
   adminClientSubmitButton: document.querySelector("#adminClientSubmitButton"),
   adminClientStatus: document.querySelector("#adminClientStatus"),
   statsGrid: document.querySelector("#statsGrid"),
@@ -80,6 +78,11 @@ function init() {
   els.clearAllUsersButtonTable?.addEventListener("click", () => {
     void clearAllUserData();
   });
+  els.usersTable?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-copy-password]");
+    if (!button) return;
+    void copyPassword(button.dataset.copyPassword || "", button);
+  });
   void restoreAdminSession();
 }
 
@@ -134,10 +137,8 @@ async function createClientAccount() {
     name: els.adminClientNameInput?.value.trim() || "",
     email: els.adminClientEmailInput?.value.trim() || "",
     password: els.adminClientPasswordInput?.value || "",
-    businessName: els.adminClientBusinessInput?.value.trim() || "",
-    website: els.adminClientWebsiteInput?.value.trim() || "",
   };
-  if (!payload.name || !payload.email || !payload.password || !payload.businessName || !payload.website) {
+  if (!payload.name || !payload.email || !payload.password) {
     setClientStatus("Fill in every client field.");
     return;
   }
@@ -286,7 +287,7 @@ function renderStats(stats) {
   els.statsGrid.innerHTML = rows
     .map(
       (row) => `
-        <article class="stat-card">
+        <article class="admin-stat-card">
           <span>${escapeHtml(row.label)}</span>
           <strong>${escapeHtml(String(row.value))}</strong>
         </article>
@@ -298,7 +299,7 @@ function renderStats(stats) {
 function renderRequests(requests) {
   if (!requests.length) {
     els.requestList.innerHTML = `
-      <article class="empty-card">
+      <article class="admin-empty-card">
         <p>No premium requests yet</p>
         <p>When a premium customer asks for reoptimization, it will show up here.</p>
       </article>
@@ -309,19 +310,19 @@ function renderRequests(requests) {
   els.requestList.innerHTML = requests
     .map(
       (request) => `
-        <article class="request-card">
-          <div class="request-top">
+        <article class="admin-request-card">
+          <div class="admin-request-top">
             <div>
               <strong>${escapeHtml(request.businessName || "Unknown business")}</strong>
               <p>${escapeHtml(request.requestedBy?.email || "No requester email")}</p>
             </div>
-            <div class="request-badges">
-              <span class="badge ${request.status === "requested" ? "blue" : ""}">${escapeHtml(request.status || "requested")}</span>
-              <span class="badge subtle">${escapeHtml(request.deliveryProvider || "supabase_queue")}</span>
+            <div class="admin-request-badges">
+              <span class="admin-badge ${request.status === "requested" ? "blue" : ""}">${escapeHtml(request.status || "requested")}</span>
+              <span class="admin-badge subtle">${escapeHtml(request.deliveryProvider || "supabase_queue")}</span>
             </div>
           </div>
-          <p class="request-summary">${escapeHtml(request.summary || "Premium reoptimization request saved.")}</p>
-          <div class="request-meta">
+          <p class="admin-request-summary">${escapeHtml(request.summary || "Premium reoptimization request saved.")}</p>
+          <div class="admin-request-meta">
             <span>${escapeHtml(request.actionCount)} insight${request.actionCount === 1 ? "" : "s"}</span>
             <span>${escapeHtml(formatDate(request.createdAt))}</span>
             <span>${escapeHtml(request.deliveryStatus || "saved_only")}</span>
@@ -336,7 +337,7 @@ function renderUsers(users) {
   if (!users.length) {
     els.usersTable.innerHTML = `
       <tr>
-        <td colspan="6">No shared users found yet.</td>
+        <td colspan="7">No shared users found yet.</td>
       </tr>
     `;
     return;
@@ -351,9 +352,10 @@ function renderUsers(users) {
             <div class="table-subcopy">${escapeHtml(user.email || "")}</div>
             <div class="table-subcopy">Signed up ${escapeHtml(formatDate(user.signupAt || user.createdAt))}</div>
           </td>
+          <td>${renderPasswordCell(user.password)}</td>
           <td>
             <div class="stack-cell">
-              <span class="badge ${user.premiumInsights ? "gold" : "subtle"}">${escapeHtml(user.premiumInsights ? "Premium" : "Standard")}</span>
+              <span class="admin-badge ${user.premiumInsights ? "gold" : "subtle"}">${escapeHtml(user.premiumInsights ? "Premium" : "Standard")}</span>
               <span class="table-subcopy">${escapeHtml(user.status || "missing")}${user.plan ? ` · ${escapeHtml(user.plan)}` : ""}</span>
             </div>
           </td>
@@ -364,7 +366,7 @@ function renderUsers(users) {
           </td>
           <td>
             <div class="stack-cell stack-cell-tight">
-              <span class="badge blue">${escapeHtml(user.setupStatus || "Unknown")}</span>
+              <span class="admin-badge blue">${escapeHtml(user.setupStatus || "Unknown")}</span>
               <span class="table-subcopy">${escapeHtml(user.implementationPath || "Unknown")}</span>
               <span class="table-subcopy">Add us: ${escapeHtml(user.addUsStatus || "Not tracked yet")}</span>
             </div>
@@ -378,6 +380,32 @@ function renderUsers(users) {
       `,
     )
     .join("");
+}
+
+function renderPasswordCell(password) {
+  if (!password) {
+    return `<span class="table-subcopy password-missing">Not on file</span>`;
+  }
+  return `
+    <div class="password-cell">
+      <code class="password-value">${escapeHtml(password)}</code>
+      <button class="ghost-button password-copy-button" type="button" data-copy-password="${escapeAttr(password)}">Copy</button>
+    </div>
+  `;
+}
+
+async function copyPassword(password, button) {
+  if (!password) return;
+  try {
+    await navigator.clipboard.writeText(password);
+    const original = button.textContent;
+    button.textContent = "Copied";
+    window.setTimeout(() => {
+      button.textContent = original;
+    }, 1400);
+  } catch {
+    window.prompt("Copy this password:", password);
+  }
 }
 
 function setStatus(message) {
@@ -429,5 +457,9 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
 }
 

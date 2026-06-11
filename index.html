@@ -601,6 +601,17 @@ OPENROUTER_API_KEY=...
       <div id="dialogContent"></div>
     </dialog>
 
+    <dialog id="newScanConfirmDialog" class="confirm-dialog">
+      <form method="dialog" class="confirm-dialog-card">
+        <h2>Start a new scan?</h2>
+        <p>This runs a full AI visibility scan and can take a few minutes.</p>
+        <div class="confirm-dialog-actions">
+          <button class="ghost-button" type="submit" value="cancel">Cancel</button>
+          <button class="primary-button" type="submit" value="confirm">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="app.js?v=20260530-03"></script>
   </body>
 </html>

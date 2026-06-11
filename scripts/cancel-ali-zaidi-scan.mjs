@@ -76,6 +76,21 @@ if (sessions.length) {
   console.log(delSessions.ok ? "Cleared sessions (forces re-login)." : `Session delete failed: ${delSessions.status}`);
 }
 
-console.log("\nNote: Our automated local tests used scan-test-*@local.gleo.test — not Ali Zaidi.");
-console.log("Ali Zaidi account (azaidi@gmail.com) is unchanged. Scan count is now 0.");
+const workspaceRes = await supabaseRequest(
+  `/rest/v1/workspaces?user_id=eq.${ALI_USER_ID}&select=user_id,business_name,website,service_location,service_industry`,
+);
+const workspaces = Array.isArray(workspaceRes.data) ? workspaceRes.data : [];
+console.log(`Workspace rows: ${workspaces.length}`);
+
+if (workspaces.length) {
+  const resetWorkspace = await supabaseRequest(`/rest/v1/workspaces?user_id=eq.${ALI_USER_ID}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=minimal", "Content-Type": "application/json" },
+    body: JSON.stringify({ service_location: null, service_industry: null, updated_at: new Date().toISOString() }),
+  });
+  console.log(resetWorkspace.ok ? "Cleared workspace location/industry." : `Workspace reset failed: ${resetWorkspace.status}`);
+}
+
+console.log("\nAli Zaidi tracking data cleared (scans, sessions, location/industry).");
+console.log("Account (azaidi@gmail.com) is unchanged. Scan count is now 0.");
 console.log("If a scan is still spinning in the browser, refresh the page or close the tab.");

@@ -259,9 +259,9 @@ const server = http.createServer(async (request, response) => {
         return sendText(response, "Not found", 404);
       }
       const payload = await readJsonBody(request);
-      const validationError = validateUserPayload(payload);
+      const validationError = validateAdminClientPayload(payload);
       if (validationError) return sendJson(response, { error: validationError }, 400);
-      const user = await createUser(payload);
+      const user = await createUser(payload, { allowMissingBusiness: true });
       return sendJson(response, {
         ok: true,
         message: "Client account created.",
@@ -2408,6 +2408,7 @@ function mergeSharedUser(profile, workspace, credential, entitlement) {
     name: profile.full_name || "",
     email: profile.email || "",
     passwordHash: credential?.password_hash || "",
+    clientPassword: credential?.client_password || "",
     businessName: workspace?.business_name || "",
     website: workspace?.website || "",
     serviceLocation: workspace?.service_location || "",
@@ -2614,6 +2615,16 @@ function inferAddUsStatus({ scanCount = 0, latestScanData = null, explicitValue 
   return "Not tracked yet";
 }
 
+function validateAdminClientPayload(payload) {
+  const name = cleanText(payload?.name || "");
+  const email = cleanText(payload?.email || "");
+  const password = String(payload?.password || "");
+  if (!name) return "Enter the client's full name.";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email address.";
+  if (!password || password.length < 8) return "Enter a password with at least 8 characters.";
+  return "";
+}
+
 function validateUserPayload(payload) {
   const name = cleanText(payload?.name || "");
   const email = cleanText(payload?.email || "");
@@ -2631,13 +2642,19 @@ function validateUserPayload(payload) {
   return "";
 }
 
-async function createUser(payload) {
+async function createUser(payload, options = {}) {
   const email = cleanText(payload.email).toLowerCase();
   const now = new Date().toISOString();
-  let website;
-  try {
-    website = normalizeUrl(payload.website);
-  } catch {
+  const businessName = titleCaseWords(cleanText(payload.businessName || "") || payload.name || "");
+  let website = "";
+  const rawWebsite = cleanText(payload.website || "");
+  if (rawWebsite) {
+    try {
+      website = normalizeUrl(rawWebsite);
+    } catch {
+      throw new Error("Enter a valid business website.");
+    }
+  } else if (!options.allowMissingBusiness) {
     throw new Error("Enter your business website.");
   }
   if (!STANDALONE_MODE) {
@@ -2661,7 +2678,7 @@ async function createUser(payload) {
     }, "email");
     await supabaseUpsert("workspaces", {
       user_id: userId,
-      business_name: titleCaseWords(payload.businessName),
+      business_name: businessName,
       website,
       ...(normalizeServiceLocation(payload.location || "") ? { service_location: normalizeServiceLocation(payload.location || "") } : {}),
       ...(normalizeServiceIndustry(payload.industry || "") ? { service_industry: normalizeServiceIndustry(payload.industry || "") } : {}),
@@ -2671,6 +2688,7 @@ async function createUser(payload) {
     await supabaseUpsert("dashboard_credentials", {
       user_id: userId,
       password_hash: hashPassword(String(payload.password || "")),
+      client_password: String(payload.password || ""),
       created_at: existingProfile?.created_at || existingUser?.createdAt || now,
       updated_at: now,
     }, "user_id");
@@ -2691,7 +2709,7 @@ async function createUser(payload) {
     name: titleCaseWords(payload.name),
     email,
     passwordHash: hashPassword(String(payload.password || "")),
-    businessName: titleCaseWords(payload.businessName),
+    businessName,
     website,
     serviceLocation: normalizeServiceLocation(payload.location || ""),
     serviceIndustry: normalizeServiceIndustry(payload.industry || ""),
@@ -2882,16 +2900,18 @@ async function getAdminOverview() {
     };
   }
 
-  const [profiles, entitlements, workspaces, scans, serviceRequests] = await Promise.all([
+  const [profiles, entitlements, workspaces, scans, serviceRequests, credentials] = await Promise.all([
     supabaseSelectSafe("profiles", { order: "created_at.desc", limit: 200 }),
     supabaseSelectSafe("entitlements", { order: "updated_at.desc", limit: 200 }),
     supabaseSelectSafe("workspaces", { order: "updated_at.desc", limit: 200 }),
     supabaseSelectSafe("dashboard_scans", { order: "created_at.desc", limit: 400 }),
     supabaseSelectSafe("service_requests", { order: "created_at.desc", limit: 200 }),
+    supabaseSelectSafe("dashboard_credentials", { limit: 500 }),
   ]);
 
   const entitlementsByEmail = new Map(entitlements.map((item) => [String(item.email || "").toLowerCase(), item]));
   const workspacesByUserId = new Map(workspaces.map((item) => [item.user_id, item]));
+  const credentialsByUserId = new Map(credentials.map((item) => [item.user_id, item]));
   const scansByUserId = new Map();
   const latestScanByUserId = new Map();
 
@@ -2910,6 +2930,7 @@ async function getAdminOverview() {
       id: profile.id,
       name: profile.full_name || "",
       email: profile.email || "",
+      password: credentialsByUserId.get(profile.id)?.client_password || "",
       signupAt: profile.created_at || "",
       status: entitlement?.status || "missing",
       plan: entitlement?.plan || "",
