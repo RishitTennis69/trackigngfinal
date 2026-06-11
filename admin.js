@@ -20,35 +20,36 @@ const els = {
   usersTable: document.querySelector("#usersTable"),
   refreshButton: document.querySelector("#refreshButton"),
   adminStatus: document.querySelector("#adminStatus"),
-  adminThemeToggle: document.querySelector("#adminThemeToggle"),
-  adminThemeToggleAuth: document.querySelector("#adminThemeToggleAuth"),
+  openClientModalButton: document.querySelector("#openClientModalButton"),
+  adminClientModal: document.querySelector("#adminClientModal"),
   clearAllUsersButton: document.querySelector("#clearAllUsersButton"),
   clearAllUsersButtonTable: document.querySelector("#clearAllUsersButtonTable"),
 };
 
-const ADMIN_THEME_KEY = "gleoAdminTheme";
-
-function initTheme() {
-  syncThemeToggleLabels();
-  els.adminThemeToggle?.addEventListener("click", toggleTheme);
-  els.adminThemeToggleAuth?.addEventListener("click", toggleTheme);
+function initClientModal() {
+  els.openClientModalButton?.addEventListener("click", openClientModal);
+  els.adminClientModal?.querySelectorAll("[data-modal-close]").forEach((node) => {
+    node.addEventListener("click", closeClientModal);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.adminClientModal?.classList.contains("hidden")) {
+      closeClientModal();
+    }
+  });
 }
 
-function currentTheme() {
-  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+function openClientModal() {
+  if (!els.adminClientModal) return;
+  els.adminClientModal.classList.remove("hidden");
+  document.body.classList.add("admin-modal-open");
+  els.adminClientNameInput?.focus();
 }
 
-function toggleTheme() {
-  const nextTheme = currentTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = nextTheme;
-  localStorage.setItem(ADMIN_THEME_KEY, nextTheme);
-  syncThemeToggleLabels();
-}
-
-function syncThemeToggleLabels() {
-  const label = currentTheme() === "dark" ? "Light" : "Dark";
-  if (els.adminThemeToggle) els.adminThemeToggle.textContent = label;
-  if (els.adminThemeToggleAuth) els.adminThemeToggleAuth.textContent = label;
+function closeClientModal() {
+  if (!els.adminClientModal) return;
+  els.adminClientModal.classList.add("hidden");
+  document.body.classList.remove("admin-modal-open");
+  clearClientStatus();
 }
 
 if (document.readyState === "loading") {
@@ -58,7 +59,7 @@ if (document.readyState === "loading") {
 }
 
 function init() {
-  initTheme();
+  initClientModal();
   els.refreshButton?.addEventListener("click", () => {
     void loadAdminData();
   });
@@ -155,6 +156,7 @@ async function createClientAccount() {
     setClientStatus(`Created ${result.user?.email || payload.email}. Send them their login details.`, "success");
     els.adminClientForm?.reset();
     await loadAdminData();
+    window.setTimeout(closeClientModal, 1400);
   } catch (error) {
     setClientStatus(error.message || "Could not create the client account.");
   } finally {
@@ -165,7 +167,7 @@ async function createClientAccount() {
 function toggleClientBusy(isBusy) {
   if (els.adminClientSubmitButton) {
     els.adminClientSubmitButton.disabled = isBusy;
-    els.adminClientSubmitButton.textContent = isBusy ? "Creating..." : "Create Client Account";
+    els.adminClientSubmitButton.textContent = isBusy ? "Creating..." : "Create client account";
   }
 }
 

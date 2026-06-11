@@ -71,8 +71,11 @@ const PROVIDERS = {
   },
   gemini: {
     label: "Gemini",
-    keyName: "GEMINI_API_KEY",
-    model: process.env.GEMINI_MODEL || "gemini-3.1-flash-lite",
+    keyName: "OPENROUTER_API_KEY",
+    model: (() => {
+      const raw = process.env.GEMINI_OPENROUTER_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+      return raw.includes("/") ? raw : `google/${raw}`;
+    })(),
   },
   openrouter: {
     label: "Claude",
@@ -88,6 +91,7 @@ const MIME_TYPES = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".mp4": "video/mp4",
 };
 
 const server = http.createServer(async (request, response) => {
@@ -869,52 +873,13 @@ async function askOpenAI(context) {
 }
 
 async function askGemini(context) {
-  const model = encodeURIComponent(PROVIDERS.gemini.model);
-  const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: buildQuestion(context) }],
-      },
-    ],
-    generationConfig: {
-      maxOutputTokens: 900,
-    },
-  };
-  if (GEMINI_USE_WEB_SEARCH) {
-    body.tools = [{ google_search: {} }];
-  }
-
-  let data;
-  try {
-    data = await postJson(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      body,
-    );
-  } catch (error) {
-    if (!body.tools) throw error;
-    const retryBody = { ...body };
-    delete retryBody.tools;
-    data = await postJson(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      retryBody,
-    );
-  }
-
-  return {
-    answer:
-      data.candidates?.[0]?.content?.parts
-        ?.map((part) => part.text || "")
-        .join("\n")
-        .trim() || "",
-    citations: extractCitations(data),
-    rawMeta: { finishReason: data.candidates?.[0]?.finishReason },
-  };
+  return askOpenRouter(context, { model: PROVIDERS.gemini.model });
 }
 
-async function askOpenRouter(context) {
+async function askOpenRouter(context, options = {}) {
+  const model = options.model || PROVIDERS.openrouter.model;
   const body = {
-    model: PROVIDERS.openrouter.model,
+    model,
     messages: [
       {
         role: "system",

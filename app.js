@@ -21,12 +21,19 @@ const state = {
   autoScanRequestedFor: "",
   firstScanPollTimer: null,
   firstScanPollAttempts: 0,
+  trackingProgressRaf: null,
+  trackingProgressStartedAt: null,
   premiumRequestPending: false,
 };
 
 const FIRST_SCAN_PENDING_STORAGE_KEY = "gleoFirstScanPendingUserId";
+const FIRST_SCAN_PENDING_AT_KEY = "gleoFirstScanPendingAt";
 const FIRST_SCAN_POLL_INTERVAL_MS = 5000;
 const FIRST_SCAN_POLL_MAX_ATTEMPTS = 36;
+const FIRST_SCAN_PENDING_MAX_MS = 20 * 60 * 1000;
+const FIRST_SCAN_RESUME_GRACE_MS = 90 * 1000;
+const SCAN_REQUEST_TIMEOUT_MS = 12 * 60 * 1000;
+const TRACKING_PROGRESS_DURATION_MS = 150000;
 const API_BASE_URL = resolveApiBaseUrl();
 
 const els = {
@@ -45,6 +52,7 @@ const els = {
   trackingLaunchText: document.querySelector("#trackingLaunchText"),
   trackingLaunchHint: document.querySelector("#trackingLaunchHint"),
   openDashboardButton: document.querySelector("#openDashboardButton"),
+  trackingLaunchProgressFill: document.querySelector("#trackingLaunchProgressFill"),
   appToast: document.querySelector("#appToast"),
   appShell: document.querySelector("#appShell"),
   landingStartForm: document.querySelector("#landingStartForm"),
@@ -175,6 +183,7 @@ function apiUrl(pathname) {
 function isAwaitingFirstScan(user = state.user) {
   if (!user?.id) return false;
   if (state.currentScan?.metrics?.completedAnswers) return false;
+  if (pendingFirstScanIsStale()) return false;
   return getPendingFirstScanUserId() === user.id || state.autoScanRequestedFor === user.id || state.isScanning;
 }
 
@@ -439,12 +448,121 @@ function getPendingFirstScanUserId() {
   return localStorage.getItem(FIRST_SCAN_PENDING_STORAGE_KEY) || "";
 }
 
-function setPendingFirstScanUserId(userId) {
+function markPendingFirstScan(userId, { resetClock = false } = {}) {
   if (!userId) {
     localStorage.removeItem(FIRST_SCAN_PENDING_STORAGE_KEY);
+    localStorage.removeItem(FIRST_SCAN_PENDING_AT_KEY);
     return;
   }
   localStorage.setItem(FIRST_SCAN_PENDING_STORAGE_KEY, userId);
+  if (resetClock || !localStorage.getItem(FIRST_SCAN_PENDING_AT_KEY)) {
+    localStorage.setItem(FIRST_SCAN_PENDING_AT_KEY, String(Date.now()));
+  }
+}
+
+function setPendingFirstScanUserId(userId) {
+  markPendingFirstScan(userId, { resetClock: true });
+}
+
+function authJsonHeaders(extra = {}) {
+  const headers = { "Content-Type": "application/json", ...extra };
+  const token = localStorage.getItem("gleoAuthToken");
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+function applyCompletedScan(scan, { openDashboard = false } = {}) {
+  clearPendingFirstScanState();
+  state.currentScan = scan;
+  if (!state.scans.some((entry) => entry.id === scan.id)) {
+    state.scans.push(scan);
+  }
+  state.useMockData = false;
+  state.setupForcedOpen = false;
+  startTrackingLaunchProgress({ complete: true });
+  renderAll();
+
+  const completed = scan.metrics?.completedAnswers || 0;
+  if (completed > 0 && openDashboard) {
+    showAppShell(true);
+  } else if (!els.trackingLaunchPage?.classList.contains("hidden")) {
+    showTrackingLaunchPage();
+  }
+
+  const missing = scan.missingPlatforms?.length
+    ? ` Missing keys: ${scan.missingPlatforms.map(providerLabel).join(", ")}.`
+    : "";
+  setStatus(
+    completed > 0
+      ? `Scan complete. ${completed} AI answers analyzed.${missing}`
+      : "The scan finished but no AI answers completed. Open the dashboard to retry.",
+    completed > 0 ? "ready" : "error",
+  );
+  return completed > 0;
+}
+
+function pendingFirstScanIsStale() {
+  const pendingUserId = getPendingFirstScanUserId();
+  if (!pendingUserId) return false;
+  const startedAt = Number(localStorage.getItem(FIRST_SCAN_PENDING_AT_KEY) || 0);
+  if (!startedAt) return true;
+  return Date.now() - startedAt > FIRST_SCAN_PENDING_MAX_MS;
+}
+
+function clearPendingFirstScanState() {
+  stopFirstScanPolling();
+  state.autoScanRequestedFor = "";
+  state.trackingProgressStartedAt = null;
+  setPendingFirstScanUserId("");
+  stopTrackingLaunchProgress();
+}
+
+function expireStalePendingFirstScan() {
+  if (!pendingFirstScanIsStale()) return false;
+  clearPendingFirstScanState();
+  setScanning(false);
+  return true;
+}
+
+function stopTrackingLaunchProgress() {
+  if (state.trackingProgressRaf) {
+    cancelAnimationFrame(state.trackingProgressRaf);
+    state.trackingProgressRaf = null;
+  }
+}
+
+function setTrackingLaunchProgress(scale, opacity = 1) {
+  if (!els.trackingLaunchProgressFill) return;
+  els.trackingLaunchProgressFill.style.transform = `scaleX(${scale})`;
+  els.trackingLaunchProgressFill.style.opacity = String(opacity);
+}
+
+function startTrackingLaunchProgress({ fromStart = false, complete = false } = {}) {
+  stopTrackingLaunchProgress();
+  if (!els.trackingLaunchProgressFill) return;
+
+  if (complete) {
+    setTrackingLaunchProgress(1, 1);
+    return;
+  }
+
+  if (fromStart || !state.trackingProgressStartedAt) {
+    state.trackingProgressStartedAt = Date.now();
+  }
+
+  const startedAt = state.trackingProgressStartedAt;
+  const maxScale = 0.94;
+
+  const tick = (now) => {
+    const elapsed = now - startedAt;
+    const t = Math.min(1, elapsed / TRACKING_PROGRESS_DURATION_MS);
+    const eased = 1 - Math.pow(1 - t, 2.2);
+    setTrackingLaunchProgress(0.06 + eased * (maxScale - 0.06), 0.72 + eased * 0.28);
+    if (t < 1) {
+      state.trackingProgressRaf = requestAnimationFrame(tick);
+    }
+  };
+  state.trackingProgressRaf = requestAnimationFrame(tick);
 }
 
 function stopFirstScanPolling() {
@@ -460,9 +578,7 @@ async function pollLatestFirstScan({ resetAttempts = false } = {}) {
   if (resetAttempts) state.firstScanPollAttempts = 0;
 
   if (state.firstScanPollAttempts >= FIRST_SCAN_POLL_MAX_ATTEMPTS) {
-    stopFirstScanPolling();
-    state.autoScanRequestedFor = "";
-    setPendingFirstScanUserId("");
+    clearPendingFirstScanState();
     if (!state.currentScan) {
       showTrackingLaunchPage();
       setStatus("The first scan is taking longer than expected. You can open the dashboard and retry when ready.", "working");
@@ -476,23 +592,23 @@ async function pollLatestFirstScan({ resetAttempts = false } = {}) {
     const latest = await fetchJson("/api/scans/latest");
     const latestScan = latest.scan || null;
     if (latestScan?.metrics?.completedAnswers) {
-      stopFirstScanPolling();
-      state.currentScan = latestScan;
-      if (!state.scans.some((scan) => scan.id === latestScan.id)) {
-        state.scans.push(latestScan);
-      }
-      state.useMockData = false;
-      state.autoScanRequestedFor = "";
-      setPendingFirstScanUserId("");
-      renderAll();
-      if (!els.trackingLaunchPage?.classList.contains("hidden")) {
-        showTrackingLaunchPage();
-      }
-      setStatus(`Scan complete. ${latestScan.metrics.completedAnswers} AI answers analyzed.`, "ready");
+      applyCompletedScan(latestScan, { openDashboard: true });
       return latestScan;
     }
-  } catch {
-    // Keep polling quietly while the launch page remains visible.
+    if (latestScan) {
+      state.currentScan = latestScan;
+      clearPendingFirstScanState();
+      renderAll();
+      showTrackingLaunchPage();
+      setStatus("The scan finished without enough completed AI answers. Open the dashboard to retry.", "error");
+      return latestScan;
+    }
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403) {
+      clearPendingFirstScanState();
+      setStatus(error.message || "Your session expired. Sign in again.", "error");
+      return null;
+    }
   }
 
   state.firstScanPollTimer = window.setTimeout(() => {
@@ -501,12 +617,62 @@ async function pollLatestFirstScan({ resetAttempts = false } = {}) {
   return null;
 }
 
-function startFirstScanPolling() {
+function startFirstScanPolling({ resetAttempts = true } = {}) {
   if (!state.user) return;
   stopFirstScanPolling();
   state.autoScanRequestedFor = state.user.id;
-  setPendingFirstScanUserId(state.user.id);
-  void pollLatestFirstScan({ resetAttempts: true });
+  markPendingFirstScan(state.user.id);
+  void pollLatestFirstScan({ resetAttempts });
+}
+
+async function resumeOrStartFirstScan() {
+  if (!state.user || !state.config) return { started: false };
+
+  const platforms = getConfiguredPlatformKeys();
+  if (!platforms.length) {
+    setStatus("We could not start the scan because the provider keys are missing on this server.", "error");
+    return { started: false };
+  }
+
+  try {
+    const latest = await fetchJson("/api/scans/latest");
+    if (latest.scan?.metrics?.completedAnswers) {
+      applyCompletedScan(latest.scan, { openDashboard: true });
+      return { started: true, completed: true };
+    }
+    if (latest.scan) {
+      state.currentScan = latest.scan;
+      clearPendingFirstScanState();
+      showTrackingLaunchPage();
+      return { started: false, needsRetry: true };
+    }
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403) {
+      clearPendingFirstScanState();
+      setStatus(error.message || "Your session expired. Sign in again.", "error");
+      return { started: false };
+    }
+  }
+
+  const pendingAt = Number(localStorage.getItem(FIRST_SCAN_PENDING_AT_KEY) || 0);
+  const pendingAge = pendingAt ? Date.now() - pendingAt : Infinity;
+
+  if (!state.isScanning && pendingAge > FIRST_SCAN_RESUME_GRACE_MS) {
+    state.autoScanRequestedFor = state.user.id;
+    markPendingFirstScan(state.user.id);
+    void runScanRequest(
+      {
+        website: state.user.website,
+        businessName: state.user.businessName,
+        platforms,
+      },
+      { auto: true },
+    );
+    return { started: true, background: true, restarted: true };
+  }
+
+  startFirstScanPolling({ resetAttempts: false });
+  return { started: true, background: true, resumed: true };
 }
 
 function renderUserProfile() {
@@ -830,10 +996,9 @@ function applyPublicSignupState() {
   document.querySelectorAll(".signup-only").forEach((node) => {
     node.hidden = !enabled;
   });
-  const landingSubmit = els.landingStartForm?.querySelector("button[type='submit']");
-  if (landingSubmit) {
-    landingSubmit.textContent = enabled ? "Get Started" : "Sign In";
-  }
+  document.querySelectorAll(".landing-start-card button[type='submit']").forEach((button) => {
+    button.textContent = enabled ? "Get started" : "Sign in";
+  });
   if (els.loginSwitch) {
     els.loginSwitch.hidden = !enabled;
   }
@@ -865,21 +1030,25 @@ function bindLanding() {
     button.addEventListener("click", () => showSignInPage());
   });
 
-  els.landingStartForm?.addEventListener("submit", (event) => {
+  els.landingPage?.addEventListener("submit", (event) => {
+    const form = event.target.closest(".landing-start-card");
+    if (!form) return;
     event.preventDefault();
+    const businessInput = form.querySelector("[name='landingBusiness']");
+    const websiteInput = form.querySelector("[name='landingWebsite']");
     if (!isPublicSignupEnabled()) {
       showSignInPage();
       showToast("Sign in with the login details Gleo sent you.");
       return;
     }
     state.pendingStart = {
-      website: normalizeWebsiteInput(els.landingWebsiteInput.value.trim()),
-      businessName: titleCaseWords(els.landingBusinessInput.value.trim()),
+      website: normalizeWebsiteInput(websiteInput?.value.trim() || ""),
+      businessName: titleCaseWords(businessInput?.value.trim() || ""),
     };
     showLoginPage();
   });
 
-  [els.landingBusinessInput, els.signupNameInput, els.signInNameInput, els.businessSetupNameInput]
+  [els.landingBusinessInput, ...document.querySelectorAll("[name='landingBusiness']"), els.signupNameInput, els.signInNameInput, els.businessSetupNameInput]
     .filter(Boolean)
     .forEach((input) => {
       input.addEventListener("blur", () => {
@@ -1083,6 +1252,15 @@ function showTrackingLaunchPage() {
     els.openDashboardButton.disabled = !hasCompletedScan && !needsRetry;
     els.openDashboardButton.textContent = hasCompletedScan ? "Open dashboard" : "Open dashboard and retry";
   }
+
+  if (hasCompletedScan) {
+    startTrackingLaunchProgress({ complete: true });
+  } else if (isWaitingForResults) {
+    startTrackingLaunchProgress();
+  } else {
+    stopTrackingLaunchProgress();
+    setTrackingLaunchProgress(needsRetry ? 0.35 : 0.06, 0.7);
+  }
 }
 
 function showAppShell(isVisible) {
@@ -1172,12 +1350,12 @@ function getConfiguredPlatformKeys() {
 }
 
 async function maybeStartAutoScan({ background = false } = {}) {
-  if (!state.user || !state.config || state.isScanning || state.currentScan || state.setupForcedOpen) return { started: false };
-  if (state.autoScanRequestedFor === state.user.id) return { started: false };
+  if (!state.user || !state.config || state.isScanning || state.setupForcedOpen) return { started: false };
+  if (state.currentScan?.metrics?.completedAnswers) return { started: false };
+  if (state.autoScanRequestedFor === state.user.id && state.isScanning) return { started: false };
 
   if (getPendingFirstScanUserId() === state.user.id) {
-    startFirstScanPolling();
-    return { started: true, background: true, resumed: true };
+    return resumeOrStartFirstScan();
   }
 
   const platforms = getConfiguredPlatformKeys();
@@ -1212,40 +1390,44 @@ async function runScanRequest(payload, { auto = false } = {}) {
   }
 
   try {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), SCAN_REQUEST_TIMEOUT_MS);
     const response = await fetch(apiUrl("/api/scan"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authJsonHeaders(),
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+    window.clearTimeout(timeoutId);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Scan failed.");
-
-    state.currentScan = data.scan;
-    state.scans.push(data.scan);
-    state.useMockData = false;
-    state.setupForcedOpen = false;
-    stopFirstScanPolling();
-    state.autoScanRequestedFor = "";
-    setPendingFirstScanUserId("");
-    renderAll();
-    if (!els.trackingLaunchPage?.classList.contains("hidden")) {
-      showTrackingLaunchPage();
+    if (!response.ok) {
+      const requestError = new Error(data.error || "Scan failed.");
+      requestError.status = response.status;
+      throw requestError;
     }
 
-    const completed = data.scan.metrics.completedAnswers;
-    const missing = data.scan.missingPlatforms.length
-      ? ` Missing keys: ${data.scan.missingPlatforms.map(providerLabel).join(", ")}.`
-      : "";
-    setStatus(`Scan complete. ${completed} AI answers analyzed.${missing}`, completed ? "ready" : "error");
+    applyCompletedScan(data.scan, { openDashboard: auto });
     return { ok: true, scan: data.scan };
   } catch (error) {
+    if (error?.status === 401 || error?.status === 403) {
+      clearPendingFirstScanState();
+      const authMessage = error.message || "Your session expired. Sign in again.";
+      setStatus(authMessage, "error");
+      if (!auto) showToast(authMessage);
+      return { ok: false, error };
+    }
+
     if (auto && state.user) state.autoScanRequestedFor = "";
-    setStatus(error.message || "The scan could not complete.", "error");
-    if (!auto) showToast(error.message || "The scan could not complete.");
+    const message =
+      error?.name === "AbortError"
+        ? "The scan timed out before it could finish. Open the dashboard and try again."
+        : error.message || "The scan could not complete.";
+    setStatus(message, "error");
+    if (!auto) showToast(message);
     if (auto && state.user) {
       startFirstScanPolling();
     } else {
-      setPendingFirstScanUserId("");
+      clearPendingFirstScanState();
     }
     return { ok: false, error };
   } finally {
@@ -1332,11 +1514,17 @@ async function loadInitialData() {
 
   renderConfig();
   renderAll();
+  const expiredStalePending = expireStalePendingFirstScan();
   const pendingFirstScanUserId = getPendingFirstScanUserId();
   if (pendingFirstScanUserId && pendingFirstScanUserId === state.user?.id && !state.currentScan?.metrics?.completedAnswers) {
-    startFirstScanPolling();
+    const resumed = await resumeOrStartFirstScan();
+    if (!resumed.completed) {
+      showTrackingLaunchPage();
+      setStatus(`We are still pulling together ${state.user?.businessName || "your"} first scan.`, "working");
+    }
+  } else if (expiredStalePending && state.user && !state.currentScan?.metrics?.completedAnswers) {
     showTrackingLaunchPage();
-    setStatus(`We are still pulling together ${state.user?.businessName || "your"} first scan.`, "working");
+    setStatus("The first scan did not finish in time. Open the dashboard to retry.", "error");
   } else {
     const started = await maybeStartAutoScan({ background: true });
     if (started.started && !state.currentScan?.metrics?.completedAnswers) {
@@ -2754,6 +2942,8 @@ function setScanning(isScanning, auto = false) {
   state.isScanning = isScanning;
   if (isScanning) {
     state.scanStartedAt = Date.now();
+    state.trackingProgressStartedAt = Date.now();
+    startTrackingLaunchProgress({ fromStart: true });
     if (els.statusStrip) {
       els.statusStrip.hidden = false;
       els.statusText.textContent = auto
@@ -2828,16 +3018,9 @@ function summarizeContexts(results) {
 }
 
 async function fetchJson(url, options = {}) {
-  const headers = {
-    "Content-Type": "application/json",
-    ...(options.headers || {}),
-  };
-  const token = localStorage.getItem("gleoAuthToken");
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   const response = await fetch(apiUrl(url), {
     ...options,
-    headers,
+    headers: authJsonHeaders(options.headers || {}),
   });
   const data = await response.json();
   if (!response.ok) {

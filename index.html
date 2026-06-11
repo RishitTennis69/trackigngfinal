@@ -6,8 +6,9 @@
     <title>Gleo GEO Insights</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&family=Outfit:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="landing-versions.css" />
   </head>
   <body>
     <section class="landing-page" id="landingPage">
@@ -27,66 +28,37 @@
       </nav>
 
       <main class="landing-main">
-        <section class="landing-hero">
-          <div class="landing-copy">
-            <p class="eyebrow">GEO monitoring for local businesses</p>
-            <h1 class="landing-headline">
-              <span class="landing-headline-line">See <span class="rotating-phrase" aria-label="when, why, and how"><span class="rotating-phrase-measure" aria-hidden="true">When</span><span>When</span><span>Why</span><span>How</span></span></span>
-              <span class="landing-headline-line">AI Recommends</span>
-              <span class="landing-headline-line">Your Business</span>
-            </h1>
-            <p class="landing-lede">Gleo scans your site, learns what your business actually is, then tracks how ChatGPT, Gemini, and Claude mention you across realistic customer searches.</p>
-            <form class="landing-start-card" id="landingStartForm">
-              <label>
-                <span>Business Name</span>
-                <input id="landingBusinessInput" type="text" placeholder="Willow Creek Dental" autocomplete="organization" />
-              </label>
-              <label>
-                <span>Website Link</span>
-                <input id="landingWebsiteInput" type="url" placeholder="https://yourbusiness.com" required autocomplete="url" />
-              </label>
-              <button class="primary-button border-beam-button" type="submit">Get Started</button>
-            </form>
+        <section class="landing-hero lv-hero lv-hero-video" aria-label="Hero">
+          <div class="landing-hero-backdrop" aria-hidden="true">
+            <video class="landing-hero-video" autoplay muted loop playsinline preload="auto">
+              <source src="media/hero-summit.mp4" type="video/mp4" />
+            </video>
+            <div class="landing-hero-scrim"></div>
           </div>
-
-          <div class="landing-product-preview" aria-label="Product preview">
-            <div class="preview-toolbar">
-              <span></span><span></span><span></span>
-              <strong>Gleo Dashboard</strong>
-            </div>
-            <div class="preview-dashboard">
-              <div class="preview-score">
-                <small>AI Visibility Score</small>
-                <strong>72<span>/100</span></strong>
-                <p>Up 18 points across recent comparable scans.</p>
-              </div>
-              <div class="preview-mini-metrics">
-                <article><span>Mention Rate</span><strong>64%</strong></article>
-                <article><span>Average Rank</span><strong>#1.4</strong></article>
-                <article><span>Positive</span><strong>67%</strong></article>
-              </div>
-              <div class="preview-chart" aria-hidden="true">
-                <svg viewBox="0 0 440 180">
-                  <defs>
-                    <linearGradient id="previewArea" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stop-color="#1d4ed8" stop-opacity="0.18" />
-                      <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path class="preview-grid" d="M24 38H420M24 82H420M24 126H420" />
-                  <path class="preview-area" d="M26 128 C84 108 92 82 146 88 C202 96 214 60 272 54 C326 48 342 90 420 42 L420 158 L26 158 Z" />
-                  <path class="preview-line" d="M26 128 C84 108 92 82 146 88 C202 96 214 60 272 54 C326 48 342 90 420 42" />
-                  <circle cx="26" cy="128" r="5" />
-                  <circle cx="146" cy="88" r="5" />
-                  <circle cx="272" cy="54" r="5" />
-                  <circle cx="420" cy="42" r="5" />
-                </svg>
-              </div>
+          <div class="landing-hero-inner">
+            <div class="landing-copy">
+              <h1 class="landing-headline landing-headline-split">
+                <span class="landing-headline-line hero-reveal hero-delay-headline-1">Climb to the top</span>
+                <span class="landing-headline-line landing-headline-accent hero-reveal hero-delay-headline-2">of AI search.</span>
+              </h1>
+              <p class="landing-lede hero-reveal hero-delay-lede">Before someone ever clicks a website, AI may already be naming three competitors and leaving you out. Gleo shows where you appear, where you disappear, and what to fix next.</p>
+              <form class="landing-start-card hero-reveal hero-delay-form" id="landingStartForm">
+                <label>
+                  <span>Business name</span>
+                  <input id="landingBusinessInput" name="landingBusiness" type="text" placeholder="Willow Creek Dental" autocomplete="organization" />
+                </label>
+                <label>
+                  <span>Website</span>
+                  <input id="landingWebsiteInput" name="landingWebsite" type="url" placeholder="https://yourbusiness.com" required autocomplete="url" />
+                </label>
+                <button class="primary-button border-beam-button" type="submit">Get started</button>
+              </form>
             </div>
           </div>
         </section>
 
-        <section class="landing-section" id="howItWorks">
+        <div class="lv-section-shell" id="howItWorks">
+        <section class="landing-section landing-section-steps lv-steps">
           <div class="landing-section-heading">
             <p class="eyebrow">How It Works</p>
             <h2>You add the site. Gleo builds the visibility picture.</h2>
@@ -136,8 +108,10 @@
             </article>
           </div>
         </section>
+        </div>
 
-        <section class="landing-section landing-faq" id="faq">
+        <div class="lv-section-shell" id="faq">
+        <section class="landing-section landing-faq lv-faq">
           <div class="landing-section-heading">
             <p class="eyebrow">FAQ</p>
             <h2>Quick answers before you scan.</h2>
@@ -161,13 +135,13 @@
             </details>
           </div>
         </section>
+        </div>
 
-        <section class="landing-section landing-cta">
-          <p class="eyebrow">Start today</p>
-          <h2>Start Understanding How AI Sees <span>Your Business</span>.</h2>
-          <p>Run the first scan, see where you show up, and turn visibility gaps into clear fixes.</p>
-          <button class="primary-button border-beam-button signup-only" type="button" data-login-open>Level Up Today</button>
-          <button class="primary-button border-beam-button signup-only-fallback" type="button" data-signin-open hidden>Sign In</button>
+        <section class="landing-section landing-cta lv-cta">
+          <p class="eyebrow">Client access</p>
+          <h2>Sign in when your tracking account is ready.</h2>
+          <p>Use the login details Gleo sent you to open your visibility dashboard.</p>
+          <button class="primary-button border-beam-button signup-only-fallback" type="button" data-signin-open>Sign in</button>
         </section>
       </main>
     </section>
@@ -281,7 +255,7 @@
           </div>
           <div class="tracking-launch-status" aria-hidden="true">
             <span class="tracking-launch-progress-track">
-              <span class="tracking-launch-progress-fill"></span>
+              <span class="tracking-launch-progress-fill" id="trackingLaunchProgressFill"></span>
             </span>
           </div>
           <p class="tracking-launch-hint" id="trackingLaunchHint">Weâ€™ll unlock the dashboard here as soon as the first score is ready.</p>
@@ -550,8 +524,8 @@
               <h2>Provider Keys</h2>
               <p>Keys are read from the server-side `.env` file. Restart the local server after editing the file.</p>
               <pre><code>OPENAI_API_KEY=...
-GEMINI_API_KEY=...
-OPENROUTER_API_KEY=...</code></pre>
+OPENROUTER_API_KEY=...
+# Gemini scans use OpenRouter (GEMINI_OPENROUTER MODEL)</code></pre>
             </article>
             <article class="detail-card">
               <h2>Scan Limits</h2>

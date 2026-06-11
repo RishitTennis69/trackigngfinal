@@ -6,14 +6,8 @@
     <title>Gleo Admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="admin.css" />
-    <script>
-      (function () {
-        const theme = localStorage.getItem("gleoAdminTheme") || "light";
-        document.documentElement.dataset.theme = theme;
-      })();
-    </script>
   </head>
   <body>
     <main class="admin-shell">
@@ -21,7 +15,6 @@
         <div class="admin-auth-card">
           <div class="admin-auth-top">
             <p class="eyebrow">Private admin</p>
-            <button class="theme-toggle" type="button" id="adminThemeToggleAuth" aria-label="Toggle dark mode">Dark</button>
           </div>
           <h1>Admin sign in</h1>
           <p class="hero-copy">Operations access for provisioning clients and reviewing shared Supabase data.</p>
@@ -48,7 +41,7 @@
             <p class="hero-copy">Provision client logins, then monitor entitlements, scans, and premium requests.</p>
           </div>
           <div class="hero-actions">
-            <button class="secondary-button theme-toggle" type="button" id="adminThemeToggle" aria-label="Toggle dark mode">Dark</button>
+            <button class="primary-link" type="button" id="openClientModalButton">Create client account</button>
             <button class="secondary-button" type="button" id="refreshButton">Refresh</button>
             <button class="danger-button" type="button" id="clearAllUsersButton" title="Clear all user data">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm3 0h2v9h-2V9ZM7 9h2v9H7V9Z" /></svg>
@@ -57,40 +50,6 @@
             <button class="secondary-button" type="button" id="adminLogoutButton">Log out</button>
             <a class="primary-link" href="/">Open dashboard</a>
           </div>
-        </section>
-
-        <section class="panel admin-provision-panel" id="adminProvisionPanel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Step 1</p>
-              <h2>Create client account</h2>
-            </div>
-          </div>
-          <p class="hero-copy">Fill this out for each client. Send them their name, email, and password — they sign in on the main dashboard (not here).</p>
-          <form class="admin-client-form" id="adminClientForm">
-            <label>
-              <span>Full name</span>
-              <input id="adminClientNameInput" type="text" autocomplete="name" required />
-            </label>
-            <label>
-              <span>Email</span>
-              <input id="adminClientEmailInput" type="email" autocomplete="email" required />
-            </label>
-            <label>
-              <span>Password</span>
-              <input id="adminClientPasswordInput" type="text" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" />
-            </label>
-            <label>
-              <span>Business name</span>
-              <input id="adminClientBusinessInput" type="text" autocomplete="organization" required />
-            </label>
-            <label class="full-width">
-              <span>Website</span>
-              <input id="adminClientWebsiteInput" type="url" autocomplete="url" required placeholder="https://yourbusiness.com" />
-            </label>
-            <button class="primary-link auth-submit full-width" type="submit" id="adminClientSubmitButton">Create client account</button>
-          </form>
-          <p class="admin-form-status hidden" id="adminClientStatus"></p>
         </section>
 
         <section class="stats-grid" id="statsGrid"></section>
@@ -138,6 +97,44 @@
         </section>
       </section>
     </main>
+
+    <div class="admin-modal hidden" id="adminClientModal" role="dialog" aria-modal="true" aria-labelledby="adminClientModalTitle">
+      <button class="admin-modal-backdrop" type="button" data-modal-close aria-label="Close dialog"></button>
+      <div class="admin-modal-card">
+        <div class="admin-modal-head">
+          <div>
+            <p class="eyebrow">Provision</p>
+            <h2 id="adminClientModalTitle">Create client account</h2>
+          </div>
+          <button class="admin-modal-close" type="button" data-modal-close aria-label="Close">×</button>
+        </div>
+        <p class="hero-copy">Fill this out for each client. Send them their name, email, and password — they sign in on the main dashboard.</p>
+        <form class="admin-client-form" id="adminClientForm">
+          <label>
+            <span>Full name</span>
+            <input id="adminClientNameInput" type="text" autocomplete="name" required />
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="adminClientEmailInput" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="adminClientPasswordInput" type="text" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" />
+          </label>
+          <label>
+            <span>Business name</span>
+            <input id="adminClientBusinessInput" type="text" autocomplete="organization" required />
+          </label>
+          <label class="full-width">
+            <span>Website</span>
+            <input id="adminClientWebsiteInput" type="url" autocomplete="url" required placeholder="https://yourbusiness.com" />
+          </label>
+          <button class="primary-link auth-submit full-width" type="submit" id="adminClientSubmitButton">Create client account</button>
+        </form>
+        <p class="admin-form-status hidden" id="adminClientStatus"></p>
+      </div>
+    </div>
 
     <script src="admin.js"></script>
   </body>
